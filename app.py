@@ -55,7 +55,7 @@ def split_text(text):
     return [text[:mid], text[mid:]]
 
 
-def fit_text(draw, text, max_width, start_size=78, min_size=34):
+def fit_text(draw, text, max_width, start_size=78, min_size=36):
     size = start_size
     while size >= min_size:
         font = load_font(size)
@@ -245,8 +245,8 @@ def draw_centered_multiline_text(frame, text, draw):
         start_y = 1035
         line_gap = 0
     else:
-        start_y = 1010
-        line_gap = 78
+        start_y = 1000
+        line_gap = 72
 
     for i, line in enumerate(lines):
         line_width = get_text_width(draw, line, font)
@@ -278,13 +278,19 @@ def make_cheki(user_id):
     text = user_texts.get(user_id, "")
     date = user_dates.get(user_id, "")
 
+    lines = split_text(text)
     draw_centered_multiline_text(frame, text, draw)
 
     date_font = load_font(40)
     if date:
         date_width = get_text_width(draw, date, date_font)
         date_x = (1000 - date_width) // 2
-        date_y = 1162 if len(split_text(text)) > 1 else 1133
+
+        if len(lines) == 1:
+            date_y = 1133
+        else:
+            date_y = 1205
+
         draw.text((date_x, date_y), date, fill=(125, 125, 118), font=date_font)
 
     final_noise = Image.effect_noise(frame.size, 10).convert("RGB")
