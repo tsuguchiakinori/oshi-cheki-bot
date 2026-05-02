@@ -39,7 +39,7 @@ def load_font(size):
         return ImageFont.load_default()
 
 
-def fit_text(draw, text, max_width, start_size=74, min_size=36):
+def fit_text(draw, text, max_width, start_size=76, min_size=40):
     size = start_size
     while size >= min_size:
         font = load_font(size)
@@ -51,77 +51,67 @@ def fit_text(draw, text, max_width, start_size=74, min_size=36):
     return load_font(min_size)
 
 
-def apply_cheki_filter(img):
-    img = ImageEnhance.Color(img).enhance(0.86)
-    img = ImageEnhance.Contrast(img).enhance(1.04)
+def apply_photo_filter(img):
+    img = ImageEnhance.Color(img).enhance(0.84)
+    img = ImageEnhance.Contrast(img).enhance(0.98)
     img = ImageEnhance.Brightness(img).enhance(1.06)
 
-    warm = Image.new("RGB", img.size, (255, 242, 218))
-    img = Image.blend(img, warm, 0.12)
+    warm = Image.new("RGB", img.size, (255, 244, 224))
+    img = Image.blend(img, warm, 0.10)
 
-    noise = Image.effect_noise(img.size, 8).convert("RGB")
-    img = Image.blend(img, noise, 0.045)
+    noise = Image.effect_noise(img.size, 6).convert("RGB")
+    img = Image.blend(img, noise, 0.035)
 
-    img = img.filter(ImageFilter.GaussianBlur(0.18))
+    img = img.filter(ImageFilter.GaussianBlur(0.15))
     return img
 
 
-def apply_frame_texture(frame):
-    w, h = frame.size
+def make_paper_frame(width, height):
+    base = Image.new("RGB", (width, height), "#f7f3ea")
 
-    warm = Image.new("RGB", (w, h), (255, 248, 235))
-    frame = Image.blend(frame, warm, 0.16)
+    # 紙の黄ばみ
+    warm = Image.new("RGB", (width, height), (255, 247, 230))
+    base = Image.blend(base, warm, 0.22)
 
-    noise = Image.effect_noise((w, h), 12).convert("RGB")
-    frame = Image.blend(frame, noise, 0.045)
+    # 紙の細かい粒子
+    noise = Image.effect_noise((width, height), 14).convert("RGB")
+    base = Image.blend(base, noise, 0.035)
 
-    # 下に向かって少しだけ紙が沈む感じ
-    gradient = Image.new("L", (1, h))
-    for y in range(h):
-        value = int(255 * (y / h) * 0.22)
+    # 下余白に少しだけ濃淡を出す
+    gradient = Image.new("L", (1, height))
+    for y in range(height):
+        value = int(255 * (y / height) * 0.10)
         gradient.putpixel((0, y), value)
 
-    alpha = gradient.resize((w, h))
-    bottom_shadow = Image.new("RGB", (w, h), (225, 222, 215))
-    frame = Image.composite(bottom_shadow, frame, alpha)
+    alpha = gradient.resize((width, height))
+    shade = Image.new("RGB", (width, height), (232, 226, 214))
+    base = Image.composite(shade, base, alpha)
 
-    return frame
+    return base
 
 
-def draw_hand_text(base_img, text, x, y, font, fill=(35, 35, 35), spacing=3):
+def draw_hand_text(base_img, text, x, y, font, fill=(35, 35, 35), spacing=4):
     draw = ImageDraw.Draw(base_img)
     current_x = x
 
     for char in text:
-        char_bbox = draw.textbbox((0, 0), char, font=font)
-        char_w = char_bbox[2] - char_bbox[0]
-        char_h = char_bbox[3] - char_bbox[1]
+        bbox = draw.textbbox((0, 0), char, font=font)
+        char_w = bbox[2] - bbox[0]
+        char_h = bbox[3] - bbox[1]
 
         char_img = Image.new("RGBA", (char_w + 40, char_h + 40), (0, 0, 0, 0))
         char_draw = ImageDraw.Draw(char_img)
-
         char_draw.text((20, 20), char, font=font, fill=fill)
 
-        angle = random.uniform(-2.2, 2.2)
+        angle = random.uniform(-1.6, 1.6)
         char_img = char_img.rotate(angle, resample=Image.BICUBIC, expand=True)
 
-        offset_x = random.randint(-1, 2)
+        offset_x = random.randint(-1, 1)
         offset_y = random.randint(-2, 2)
 
-        base_img.paste(
-            char_img,
-            (int(current_x + offset_x), int(y + offset_y)),
-            char_img
-        )
+        base_img.paste(char_img, (int(current_x + offset_x), int(y + offset_y)), char_img)
 
-        current_x += char_w + spacing + random.randint(0, 3)
-
-
-def make_rounded_mask(size, radius):
-    mask = Image.new("L", size, 0)
-    mask_draw = ImageDraw.Draw(mask)
-    mask_draw.rounded_rectangle((0, 0, size[0], size[1]), radius=radius, fill=255)
-    return mask
+        current_x += char_w + spacing + random.randint(0, 2)
 
 
 def make_cheki(user_id):
@@ -138,13 +128,13 @@ def make_cheki(user_id):
     w, h = img.size
     size = min(w, h)
     img = img.crop(((w - size) // 2, (h - size) // 2, (w + size) // 2, (h + size) // 2))
-
     img = img.resize((900, 900))
-    img = apply_cheki_filter(img)
+    img = apply_photo_filter(img)
 
-    # チェキ本体
-    frame = Image.new("RGB", (1000, 1300), "#f8f6f1")
-    frame = apply_frame_texture(frame)
+    # チェキ本体だけ生成
+    frame = make_paper_frame(1000, 1300)
+
+    # 写真部分
     frame.paste(img, (50, 80))
 
     draw = ImageDraw.Draw(frame)
@@ -152,54 +142,21 @@ def make_cheki(user_id):
     text_font = fit_text(draw, text, max_width=840, start_size=76, min_size=40)
     date_font = load_font(42)
 
-    # メインテキスト中央配置
+    # メインテキスト
     text_bbox = draw.textbbox((0, 0), text, font=text_font)
     text_w = text_bbox[2] - text_bbox[0]
     text_x = (1000 - text_w) // 2
 
-    # ほんの少し影を入れて手書き感
-    draw_hand_text(frame, text, text_x + 2, 1032, text_font, fill=(210, 205, 198), spacing=3)
-    draw_hand_text(frame, text, text_x, 1030, text_font, fill=(35, 35, 35), spacing=3)
+    draw_hand_text(frame, text, text_x, 1030, text_font, fill=(35, 35, 35), spacing=4)
 
+    # 日付
     if date:
         date_bbox = draw.textbbox((0, 0), date, font=date_font)
         date_w = date_bbox[2] - date_bbox[0]
         date_x = (1000 - date_w) // 2
+        draw.text((date_x, 1130), date, fill=(105, 105, 100), font=date_font)
 
-        draw.text((date_x + 1, 1131), date, fill=(210, 205, 198), font=date_font)
-        draw.text((date_x, 1130), date, fill=(115, 115, 112), font=date_font)
-
-    # 角丸
-    frame_rgba = frame.convert("RGBA")
-    mask = make_rounded_mask(frame_rgba.size, 26)
-    frame_rgba.putalpha(mask)
-
-    # 少しだけ傾ける
-    angle = random.uniform(-1.2, 1.2)
-    rotated = frame_rgba.rotate(
-        angle,
-        resample=Image.BICUBIC,
-        expand=True,
-        fillcolor=(230, 227, 222, 0)
-    )
-
-    # 背景
-    final_bg = Image.new("RGBA", (1120, 1440), (229, 227, 222, 255))
-
-    # 影
-    shadow = Image.new("RGBA", rotated.size, (0, 0, 0, 0))
-    shadow_alpha = rotated.getchannel("A").filter(ImageFilter.GaussianBlur(10))
-    shadow.putalpha(shadow_alpha)
-
-    x = (1120 - rotated.size[0]) // 2
-    y = (1440 - rotated.size[1]) // 2
-
-    final_bg.alpha_composite(shadow, (x + 16, y + 18))
-    final_bg.alpha_composite(rotated, (x, y))
-
-    final = final_bg.convert("RGB")
-    final.save(output_path, quality=95)
-
+    frame.save(output_path, quality=95)
     return key
 
 
@@ -262,10 +219,7 @@ def handle_text(event):
         return
 
     if state == "waiting_date":
-        if msg in ["なし", "無し", "いらない", "不要"]:
-            user_dates[user_id] = ""
-        else:
-            user_dates[user_id] = msg
+        user_dates[user_id] = "" if msg in ["なし", "無し", "いらない", "不要"] else msg
 
         key = make_cheki(user_id)
         image_url = f"{BASE_URL}/output/{key}.jpg?v={int(time.time())}"
