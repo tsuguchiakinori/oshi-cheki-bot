@@ -1,5 +1,6 @@
 import os
 import time
+import random
 from flask import Flask, request, abort, send_file
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
@@ -10,7 +11,7 @@ from linebot.models import (
     TextSendMessage,
     ImageSendMessage,
 )
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageEnhance, ImageFilter
 
 app = Flask(__name__)
 
@@ -49,21 +50,13 @@ def callback():
 
 
 def load_font(size):
-    paths = [
-        "NotoSansJP-Regular.otf",
-        "NotoSansJP-Regular.ttf",
-        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-    ]
-    for path in paths:
-        try:
-            return ImageFont.truetype(path, size)
-        except Exception:
-            pass
-    return ImageFont.load_default()
+    try:
+        return ImageFont.truetype("makiirclehand.ttf", size)
+    except Exception:
+        return ImageFont.load_default()
 
 
-def fit_text(draw, text, max_width, start_size=72, min_size=34):
+def fit_text(draw, text, max_width, start_size=74, min_size=34):
     size = start_size
     while size >= min_size:
         font = load_font(size)
@@ -73,6 +66,27 @@ def fit_text(draw, text, max_width, start_size=72, min_size=34):
             return font
         size -= 4
     return load_font(min_size)
+
+
+def apply_cheki_filter(img):
+    img = ImageEnhance.Color(img).enhance(0.86)
+    img = ImageEnhance.Contrast(img).enhance(0.94)
+    img = ImageEnhance.Brightness(img).enhance(1.06)
+
+    overlay = Image.new("RGB", img.size, (255, 246, 230))
+    img = Image.blend(img, overlay, 0.10)
+
+    noise = Image.new("RGB", img.size)
+    pixels = noise.load()
+    for y in range(img.size[1]):
+        for x in range(img.size[0]):
+            v = random.randint(235, 255)
+            pixels[x, y] = (v, v, v)
+
+    img = Image.blend(img, noise, 0.035)
+    img = img.filter(ImageFilter.SMOOTH_MORE)
+
+    return img
 
 
 @handler.add(MessageEvent, message=TextMessage)
@@ -123,30 +137,39 @@ def handle_image(event):
     top = (h - size) // 2
     img = img.crop((left, top, left + size, top + size))
     img = img.resize((760, 760))
+    img = apply_cheki_filter(img)
 
-    frame = Image.new("RGB", (900, 1160), "white")
+    # 背景＋影
+    bg = Image.new("RGB", (980, 1260), (232, 232, 228))
+    shadow = Image.new("RGB", (900, 1160), (205, 205, 200))
+    shadow = shadow.filter(ImageFilter.GaussianBlur(8))
+    bg.paste(shadow, (54, 54))
+
+    # チェキ本体
+    frame = Image.new("RGB", (900, 1160), (252, 250, 245))
     frame.paste(img, (70, 70))
 
     draw = ImageDraw.Draw(frame)
 
-    # メイン文字：大きめ
-    main_font = fit_text(draw, cheki_text, max_width=760, start_size=76, min_size=38)
+    main_font = fit_text(draw, cheki_text, max_width=760, start_size=74, min_size=38)
     bbox = draw.textbbox((0, 0), cheki_text, font=main_font)
     text_width = bbox[2] - bbox[0]
     x = (900 - text_width) // 2
-    y = 875
-    draw.text((x, y), cheki_text, fill=(25, 25, 25), font=main_font)
+    y = 865
 
-    # 日付：任意
+    draw.text((x + 1, y + 1), cheki_text, fill=(210, 205, 198), font=main_font)
+    draw.text((x, y), cheki_text, fill=(35, 35, 35), font=main_font)
+
     if date_text:
-        date_font = load_font(34)
+        date_font = load_font(38)
         bbox = draw.textbbox((0, 0), date_text, font=date_font)
         date_width = bbox[2] - bbox[0]
         date_x = (900 - date_width) // 2
-        date_y = 975
-        draw.text((date_x, date_y), date_text, fill=(80, 80, 80), font=date_font)
+        date_y = 970
+        draw.text((date_x, date_y), date_text, fill=(95, 95, 90), font=date_font)
 
-    frame.save("/tmp/output.jpg", quality=95)
+    bg.paste(frame, (40, 40))
+    bg.save("/tmp/output.jpg", quality=95)
 
     image_url = f"{BASE_URL}/output.jpg?v={int(time.time())}"
 
