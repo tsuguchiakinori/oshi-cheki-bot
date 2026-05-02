@@ -51,7 +51,7 @@ def fit_text(draw, text, max_width, start_size=74, min_size=38):
     return load_font(min_size)
 
 
-def add_vignette(img, strength=0.28):
+def add_vignette(img, strength=0.22):
     w, h = img.size
     mask = Image.new("L", (w, h), 0)
     px = mask.load()
@@ -61,39 +61,35 @@ def add_vignette(img, strength=0.28):
 
     for y in range(h):
         for x in range(w):
-            dist = math.sqrt((x - cx)**2 + (y - cy)**2)
-            px[x, y] = int(255 * (dist / max_dist)**1.8 * strength)
+            dist = math.sqrt((x - cx) ** 2 + (y - cy) ** 2)
+            px[x, y] = int(255 * (dist / max_dist) ** 1.8 * strength)
 
-    dark = Image.new("RGB", (w, h), (40, 32, 24))
+    dark = Image.new("RGB", (w, h), (45, 36, 28))
     return Image.composite(dark, img, mask)
 
 
 def apply_old_cheki_photo_filter(img):
-    # ③ 写真の色味を少しランダム化
-    color = random.uniform(0.70, 0.78)
-    contrast = random.uniform(1.02, 1.08)
-    brightness = random.uniform(0.94, 0.99)
+    # 写真は少し見やすく戻す
+    img = ImageEnhance.Color(img).enhance(random.uniform(0.76, 0.84))
+    img = ImageEnhance.Contrast(img).enhance(random.uniform(1.04, 1.10))
+    img = ImageEnhance.Brightness(img).enhance(random.uniform(1.00, 1.05))
 
-    img = ImageEnhance.Color(img).enhance(color)
-    img = ImageEnhance.Contrast(img).enhance(contrast)
-    img = ImageEnhance.Brightness(img).enhance(brightness)
-
-    warm = Image.new("RGB", img.size, (255, 232, 195))
-    img = Image.blend(img, warm, random.uniform(0.14, 0.18))
+    warm = Image.new("RGB", img.size, (255, 234, 202))
+    img = Image.blend(img, warm, random.uniform(0.10, 0.14))
 
     sepia = Image.new("RGB", img.size, (120, 82, 50))
-    img = Image.blend(img, sepia, random.uniform(0.02, 0.04))
+    img = Image.blend(img, sepia, random.uniform(0.015, 0.03))
 
-    noise = Image.effect_noise(img.size, random.randint(12, 18)).convert("RGB")
-    img = Image.blend(img, noise, random.uniform(0.035, 0.05))
+    noise = Image.effect_noise(img.size, random.randint(10, 15)).convert("RGB")
+    img = Image.blend(img, noise, random.uniform(0.025, 0.04))
 
-    img = add_vignette(img, strength=random.uniform(0.24, 0.30))
-    img = img.filter(ImageFilter.GaussianBlur(random.uniform(0.08, 0.14)))
+    img = add_vignette(img, strength=random.uniform(0.18, 0.24))
+    img = img.filter(ImageFilter.GaussianBlur(random.uniform(0.06, 0.10)))
 
     return img
 
 
-def draw_soft_stain(base, x, y, rx, ry, color, alpha):
+def draw_soft_stain(base, x, y, rx, ry, color, alpha, blur=18):
     stain = Image.new("RGBA", base.size, (0, 0, 0, 0))
     d = ImageDraw.Draw(stain)
 
@@ -102,48 +98,77 @@ def draw_soft_stain(base, x, y, rx, ry, color, alpha):
         fill=(color[0], color[1], color[2], alpha)
     )
 
-    stain = stain.filter(ImageFilter.GaussianBlur(random.randint(10, 24)))
+    stain = stain.filter(ImageFilter.GaussianBlur(blur))
     return Image.alpha_composite(base.convert("RGBA"), stain).convert("RGB")
+
+
+def add_edge_and_bottom_stains(base, width, height):
+    # 汚れは写真部分を避ける
+    # 写真範囲：x=50〜950, y=80〜980
+    safe_photo_box = (40, 70, 960, 990)
+
+    def is_outside_photo(x, y):
+        return not (safe_photo_box[0] <= x <= safe_photo_box[2] and safe_photo_box[1] <= y <= safe_photo_box[3])
+
+    # 端の汚れ：控えめに毎回少し
+    edge_count = random.randint(3, 7)
+    for _ in range(edge_count):
+        side = random.choice(["left", "right", "top", "bottom"])
+        if side == "left":
+            x = random.randint(-40, 45)
+            y = random.randint(0, height)
+        elif side == "right":
+            x = random.randint(width - 45, width + 40)
+            y = random.randint(0, height)
+        elif side == "top":
+            x = random.randint(0, width)
+            y = random.randint(-35, 45)
+        else:
+            x = random.randint(0, width)
+            y = random.randint(height - 220, height + 30)
+
+        if not is_outside_photo(x, y):
+            continue
+
+        rx = random.randint(18, 65)
+        ry = random.randint(10, 48)
+        color = random.choice([
+            (190, 178, 150),
+            (205, 192, 165),
+            (176, 160, 132),
+            (220, 207, 181),
+        ])
+        alpha = random.randint(14, 28)
+        base = draw_soft_stain(base, x, y, rx, ry, color, alpha, blur=random.randint(14, 26))
+
+    # 下余白は少しだけ個体差を強める
+    bottom_count = random.randint(2, 5)
+    for _ in range(bottom_count):
+        x = random.randint(80, width - 80)
+        y = random.randint(1010, height - 60)
+        rx = random.randint(25, 90)
+        ry = random.randint(10, 45)
+
+        color = random.choice([
+            (196, 184, 155),
+            (212, 198, 170),
+            (180, 164, 138),
+        ])
+        alpha = random.randint(10, 22)
+        base = draw_soft_stain(base, x, y, rx, ry, color, alpha, blur=random.randint(18, 32))
+
+    return base
 
 
 def make_old_paper_frame(width, height):
     base = Image.new("RGB", (width, height), "#f3eddf")
 
     warm = Image.new("RGB", (width, height), (255, 239, 210))
-    base = Image.blend(base, warm, 0.26)
+    base = Image.blend(base, warm, 0.25)
 
-    noise = Image.effect_noise((width, height), 22).convert("RGB")
-    base = Image.blend(base, noise, 0.045)
-
-    # ① 汚れの確率制御
-    # 70% 控えめ / 20% 強め / 10% ほぼなし
-    r = random.random()
-    if r < 0.70:
-        stain_count = random.randint(1, 3)
-        stain_alpha = random.randint(16, 28)
-        stain_size = (18, 55)
-    elif r < 0.90:
-        stain_count = random.randint(3, 6)
-        stain_alpha = random.randint(22, 38)
-        stain_size = (28, 85)
-    else:
-        stain_count = random.randint(0, 1)
-        stain_alpha = random.randint(10, 18)
-        stain_size = (12, 35)
-
-    # ② 自然な汚れ：丸ではなく楕円＋ぼかし
-    for _ in range(stain_count):
-        x = random.randint(-30, width + 30)
-        y = random.randint(-30, height + 30)
-        rx = random.randint(stain_size[0], stain_size[1])
-        ry = random.randint(stain_size[0] // 2, stain_size[1])
-        color = random.choice([
-            (190, 178, 150),
-            (205, 192, 165),
-            (175, 160, 132),
-            (220, 206, 180),
-        ])
-        base = draw_soft_stain(base, x, y, rx, ry, color, stain_alpha)
+    # 紙の細かい質感
+    noise = Image.effect_noise((width, height), 24).convert("RGB")
+    base = Image.blend(base, noise, 0.04)
 
     # 端のくすみ
     edge = Image.new("L", (width, height), 0)
@@ -152,20 +177,23 @@ def make_old_paper_frame(width, height):
     for y in range(height):
         for x in range(width):
             d = min(x, width - x, y, height - y)
-            v = max(0, 1 - d / 220)
-            px[x, y] = int(255 * (v ** 1.8) * 0.22)
+            v = max(0, 1 - d / 240)
+            px[x, y] = int(255 * (v ** 1.8) * 0.20)
 
-    aged = Image.new("RGB", (width, height), (214, 202, 180))
+    aged = Image.new("RGB", (width, height), (216, 204, 182))
     base = Image.composite(aged, base, edge)
 
-    # 下余白にうっすら経年感
+    # 下余白の経年感
     gradient = Image.new("L", (1, height))
     for y in range(height):
-        gradient.putpixel((0, y), int(255 * (y / height) ** 2 * 0.12))
+        gradient.putpixel((0, y), int(255 * (y / height) ** 2 * 0.11))
 
     alpha = gradient.resize((width, height))
-    shade = Image.new("RGB", (width, height), (222, 213, 196))
+    shade = Image.new("RGB", (width, height), (223, 214, 196))
     base = Image.composite(shade, base, alpha)
+
+    # 端・下余白だけ汚れ追加
+    base = add_edge_and_bottom_stains(base, width, height)
 
     return base
 
@@ -217,7 +245,6 @@ def make_cheki(user_id):
 
     frame = make_old_paper_frame(1000, 1300)
 
-    # 写真位置をわずかにズラして整いすぎを避ける
     photo_x = 50 + random.randint(-5, 5)
     photo_y = 80 + random.randint(-4, 4)
     frame.paste(img, (photo_x, photo_y), img)
@@ -240,9 +267,8 @@ def make_cheki(user_id):
         date_x = (1000 - (bbox[2] - bbox[0])) // 2 + random.randint(-10, 10)
         draw.text((date_x, 1130 + random.randint(-2, 5)), date, fill=(100, 100, 100), font=date_font)
 
-    # 最後に全体へごく薄い粒子
     final_noise = Image.effect_noise(frame.size, 10).convert("RGB")
-    frame = Image.blend(frame, final_noise, 0.016)
+    frame = Image.blend(frame, final_noise, 0.014)
 
     frame.save(f"/tmp/output_{key}.jpg", quality=95)
     return key
