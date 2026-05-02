@@ -2,6 +2,7 @@ import os
 import time
 import random
 import hashlib
+import math
 from flask import Flask, request, abort, send_file
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
@@ -39,7 +40,7 @@ def load_font(size):
         return ImageFont.load_default()
 
 
-def fit_text(draw, text, max_width, start_size=76, min_size=40):
+def fit_text(draw, text, max_width, start_size=74, min_size=38):
     size = start_size
     while size >= min_size:
         font = load_font(size)
@@ -51,46 +52,91 @@ def fit_text(draw, text, max_width, start_size=76, min_size=40):
     return load_font(min_size)
 
 
-def apply_photo_filter(img):
-    img = ImageEnhance.Color(img).enhance(0.84)
-    img = ImageEnhance.Contrast(img).enhance(0.98)
-    img = ImageEnhance.Brightness(img).enhance(1.06)
+def add_vignette(img, strength=0.38):
+    w, h = img.size
+    vignette = Image.new("L", (w, h), 0)
+    px = vignette.load()
+    cx, cy = w / 2, h / 2
+    max_dist = math.sqrt(cx * cx + cy * cy)
 
-    warm = Image.new("RGB", img.size, (255, 244, 224))
-    img = Image.blend(img, warm, 0.10)
+    for y in range(h):
+        for x in range(w):
+            dist = math.sqrt((x - cx) ** 2 + (y - cy) ** 2)
+            value = int(255 * min(1, (dist / max_dist) ** 1.8) * strength)
+            px[x, y] = value
 
-    noise = Image.effect_noise(img.size, 6).convert("RGB")
-    img = Image.blend(img, noise, 0.035)
+    dark = Image.new("RGB", (w, h), (40, 32, 24))
+    return Image.composite(dark, img, vignette)
 
-    img = img.filter(ImageFilter.GaussianBlur(0.15))
+
+def apply_old_cheki_photo_filter(img):
+    # 少し褪色
+    img = ImageEnhance.Color(img).enhance(0.72)
+    img = ImageEnhance.Contrast(img).enhance(0.88)
+    img = ImageEnhance.Brightness(img).enhance(0.98)
+
+    # 古い黄ばみ
+    warm = Image.new("RGB", img.size, (255, 232, 195))
+    img = Image.blend(img, warm, 0.18)
+
+    # うっすら赤茶寄せ
+    sepia = Image.new("RGB", img.size, (120, 82, 50))
+    img = Image.blend(img, sepia, 0.04)
+
+    # 粒子
+    noise = Image.effect_noise(img.size, 18).convert("RGB")
+    img = Image.blend(img, noise, 0.055)
+
+    # 周辺減光
+    img = add_vignette(img, strength=0.32)
+
+    # ほんの少しだけ眠くする
+    img = img.filter(ImageFilter.GaussianBlur(0.22))
+
     return img
 
 
-def make_paper_frame(width, height):
-    base = Image.new("RGB", (width, height), "#f7f3ea")
+def make_old_paper_frame(width, height):
+    base = Image.new("RGB", (width, height), "#f3eddf")
 
-    # 紙の黄ばみ
-    warm = Image.new("RGB", (width, height), (255, 247, 230))
-    base = Image.blend(base, warm, 0.22)
+    # 黄ばみ
+    warm = Image.new("RGB", (width, height), (255, 239, 210))
+    base = Image.blend(base, warm, 0.26)
 
-    # 紙の細かい粒子
-    noise = Image.effect_noise((width, height), 14).convert("RGB")
-    base = Image.blend(base, noise, 0.035)
+    # 紙ノイズ
+    noise = Image.effect_noise((width, height), 22).convert("RGB")
+    base = Image.blend(base, noise, 0.045)
 
-    # 下余白に少しだけ濃淡を出す
-    gradient = Image.new("L", (1, height))
-    for y in range(height):
-        value = int(255 * (y / height) * 0.10)
+    # 周辺の古びたくすみ
+    w, h = width, height
+    edge = Image.new("L", (w, h), 0)
+    px = edge.load()
+
+    for y in range(h):
+        for x in range(w):
+            dx = min(x, w - x) / (w / 2)
+            dy = min(y, h - y) / (h / 2)
+            d = min(dx, dy)
+            value = int(255 * max(0, 1 - d) ** 1.8 * 0.28)
+            px[x, y] = value
+
+    aged = Image.new("RGB", (w, h), (214, 202, 180))
+    base = Image.composite(aged, base, edge)
+
+    # 下余白を少しだけ濃く
+    gradient = Image.new("L", (1, h))
+    for y in range(h):
+        value = int(255 * (y / h) ** 2 * 0.13)
         gradient.putpixel((0, y), value)
 
-    alpha = gradient.resize((width, height))
-    shade = Image.new("RGB", (width, height), (232, 226, 214))
+    alpha = gradient.resize((w, h))
+    shade = Image.new("RGB", (w, h), (222, 213, 196))
     base = Image.composite(shade, base, alpha)
 
     return base
 
 
-def draw_hand_text(base_img, text, x, y, font, fill=(35, 35, 35), spacing=4):
+def draw_hand_text(base_img, text, x, y, font, fill=(32, 30, 28), spacing=5):
     draw = ImageDraw.Draw(base_img)
     current_x = x
 
@@ -99,19 +145,18 @@ def draw_hand_text(base_img, text, x, y, font, fill=(35, 35, 35), spacing=4):
         char_w = bbox[2] - bbox[0]
         char_h = bbox[3] - bbox[1]
 
-        char_img = Image.new("RGBA", (char_w + 40, char_h + 40), (0, 0, 0, 0))
+        char_img = Image.new("RGBA", (char_w + 46, char_h + 46), (0, 0, 0, 0))
         char_draw = ImageDraw.Draw(char_img)
-        char_draw.text((20, 20), char, font=font, fill=fill)
+        char_draw.text((23, 23), char, font=font, fill=fill)
 
-        angle = random.uniform(-1.6, 1.6)
+        angle = random.uniform(-2.4, 2.4)
         char_img = char_img.rotate(angle, resample=Image.BICUBIC, expand=True)
 
-        offset_x = random.randint(-1, 1)
-        offset_y = random.randint(-2, 2)
+        offset_x = random.randint(-2, 2)
+        offset_y = random.randint(-3, 3)
 
         base_img.paste(char_img, (int(current_x + offset_x), int(y + offset_y)), char_img)
-
-        current_x += char_w + spacing + random.randint(0, 2)
+        current_x += char_w + spacing + random.randint(0, 3)
 
 
 def make_cheki(user_id):
@@ -124,37 +169,40 @@ def make_cheki(user_id):
 
     img = Image.open(input_path).convert("RGB")
 
-    # 正方形トリミング
     w, h = img.size
     size = min(w, h)
     img = img.crop(((w - size) // 2, (h - size) // 2, (w + size) // 2, (h + size) // 2))
     img = img.resize((900, 900))
-    img = apply_photo_filter(img)
+    img = apply_old_cheki_photo_filter(img)
 
-    # チェキ本体だけ生成
-    frame = make_paper_frame(1000, 1300)
-
-    # 写真部分
+    frame = make_old_paper_frame(1000, 1300)
     frame.paste(img, (50, 80))
 
     draw = ImageDraw.Draw(frame)
 
-    text_font = fit_text(draw, text, max_width=840, start_size=76, min_size=40)
+    text_font = fit_text(draw, text, max_width=820, start_size=74, min_size=40)
     date_font = load_font(42)
 
-    # メインテキスト
     text_bbox = draw.textbbox((0, 0), text, font=text_font)
     text_w = text_bbox[2] - text_bbox[0]
-    text_x = (1000 - text_w) // 2
 
-    draw_hand_text(frame, text, text_x, 1030, text_font, fill=(35, 35, 35), spacing=4)
+    # 完全中央にしない
+    text_x = (1000 - text_w) // 2 + random.randint(-18, 18)
+    text_y = 1030 + random.randint(-5, 8)
 
-    # 日付
+    draw_hand_text(frame, text, text_x, text_y, text_font, fill=(30, 29, 28), spacing=5)
+
     if date:
         date_bbox = draw.textbbox((0, 0), date, font=date_font)
         date_w = date_bbox[2] - date_bbox[0]
-        date_x = (1000 - date_w) // 2
-        draw.text((date_x, 1130), date, fill=(105, 105, 100), font=date_font)
+        date_x = (1000 - date_w) // 2 + random.randint(-10, 10)
+        date_y = 1130 + random.randint(-3, 6)
+
+        draw.text((date_x, date_y), date, fill=(95, 92, 86), font=date_font)
+
+    # 最後に全体へごく薄い紙感
+    final_noise = Image.effect_noise(frame.size, 10).convert("RGB")
+    frame = Image.blend(frame, final_noise, 0.018)
 
     frame.save(output_path, quality=95)
     return key
