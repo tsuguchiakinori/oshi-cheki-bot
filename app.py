@@ -47,7 +47,7 @@ def load_font(size):
         return ImageFont.load_default()
 
 
-def fit_text(draw, text, max_width, start_size=None, min_size=38):
+def fit_text(draw, text, max_width, start_size=None, min_size=34):
     if start_size is None:
         if len(text) <= 6:
             start_size = 88
@@ -60,10 +60,20 @@ def fit_text(draw, text, max_width, start_size=None, min_size=38):
     while size >= min_size:
         font = load_font(size)
         bbox = draw.textbbox((0, 0), text, font=font)
-        if (bbox[2] - bbox[0]) <= max_width:
+        text_width = bbox[2] - bbox[0]
+
+        if text_width <= max_width:
             return font
-        size -= 4
+
+        size -= 2
+
     return load_font(min_size)
+
+
+def get_center_x(draw, text, font, canvas_width):
+    bbox = draw.textbbox((0, 0), text, font=font)
+    text_width = bbox[2] - bbox[0]
+    return (canvas_width - text_width) // 2
 
 
 def add_vignette(img, strength=0.22):
@@ -222,11 +232,11 @@ def draw_hand_text(base_img, text, x, y, font):
 
         base_img.paste(
             char_img,
-            (int(current_x + random.randint(-2, 2)), int(y + random.randint(-3, 3))),
+            (int(current_x + random.randint(-1, 1)), int(y + random.randint(-2, 2))),
             char_img
         )
 
-        current_x += w + random.randint(4, 7)
+        current_x += w + random.randint(3, 6)
 
 
 def make_cheki(user_id):
@@ -252,18 +262,19 @@ def make_cheki(user_id):
     text = user_texts.get(user_id, "")
     date = user_dates.get(user_id, "")
 
-    font = fit_text(draw, text, 820)
+    font = fit_text(draw, text, max_width=820)
     date_font = load_font(40)
 
-    bbox = draw.textbbox((0, 0), text, font=font)
-    text_x = (1000 - (bbox[2] - bbox[0])) // 2 + random.randint(-15, 15)
+    # 手書き感は残しつつ、基準位置は中央揃え
+    text_x = get_center_x(draw, text, font, 1000)
+    text_y = 1030 + random.randint(-3, 4)
 
-    draw_hand_text(frame, text, text_x, 1030 + random.randint(-4, 6), font)
+    draw_hand_text(frame, text, text_x, text_y, font)
 
     if date:
-        bbox = draw.textbbox((0, 0), date, font=date_font)
-        date_x = (1000 - (bbox[2] - bbox[0])) // 2 + random.randint(-10, 10)
-        draw.text((date_x, 1133 + random.randint(-2, 5)), date, fill=(125, 125, 118), font=date_font)
+        date_x = get_center_x(draw, date, date_font, 1000)
+        date_y = 1133 + random.randint(-1, 3)
+        draw.text((date_x, date_y), date, fill=(125, 125, 118), font=date_font)
 
     final_noise = Image.effect_noise(frame.size, 10).convert("RGB")
     frame = Image.blend(frame, final_noise, 0.014)
