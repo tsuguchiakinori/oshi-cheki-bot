@@ -1,5 +1,5 @@
 import os
-from flask import Flask, request, abort
+from flask import Flask, request, abort, send_file
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import (
@@ -7,6 +7,7 @@ from linebot.models import (
     TextMessage,
     ImageMessage,
     TextSendMessage,
+    ImageSendMessage,
 )
 
 app = Flask(__name__)
@@ -21,6 +22,11 @@ handler = WebhookHandler(CHANNEL_SECRET)
 @app.route("/", methods=["GET"])
 def home():
     return "OK"
+
+
+@app.route("/input.jpg", methods=["GET"])
+def send_input_image():
+    return send_file("/tmp/input.jpg", mimetype="image/jpeg")
 
 
 @app.route("/callback", methods=["POST"])
@@ -53,7 +59,18 @@ def handle_text(event):
 
 @handler.add(MessageEvent, message=ImageMessage)
 def handle_image(event):
+    message_id = event.message.id
+
+    message_content = line_bot_api.get_message_content(message_id)
+
+    with open("/tmp/input.jpg", "wb") as f:
+        for chunk in message_content.iter_content():
+            f.write(chunk)
+
     line_bot_api.reply_message(
         event.reply_token,
-        TextSendMessage(text="画像受け取ったで📸")
+        ImageSendMessage(
+            original_content_url="https://oshi-cheki-bot.onrender.com/input.jpg",
+            preview_image_url="https://oshi-cheki-bot.onrender.com/input.jpg"
+        )
     )
