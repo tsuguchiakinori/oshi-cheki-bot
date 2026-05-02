@@ -25,16 +25,31 @@ handler = WebhookHandler(CHANNEL_SECRET)
 user_texts = {}
 user_dates = {}
 
+# =========================
+# 共通
+# =========================
+def load_font(size):
+    try:
+        return ImageFont.truetype("makiirclehand.ttf", size)
+    except:
+        return ImageFont.load_default()
 
+def apply_cheki_filter(img):
+    img = ImageEnhance.Color(img).enhance(0.9)
+    img = ImageEnhance.Contrast(img).enhance(1.1)
+    img = img.filter(ImageFilter.GaussianBlur(0.3))
+    return img
+
+# =========================
+# route
+# =========================
 @app.route("/", methods=["GET"])
 def home():
     return "OK"
 
-
 @app.route("/output.jpg", methods=["GET"])
 def output_image():
     return send_file("/tmp/output.jpg", mimetype="image/jpeg")
-
 
 @app.route("/callback", methods=["POST"])
 def callback():
@@ -48,135 +63,104 @@ def callback():
 
     return "OK"
 
-
-def load_font(size):
-    try:
-        return ImageFont.truetype("makiirclehand.ttf", size)
-    except Exception:
-        return ImageFont.load_default()
-
-
-def fit_text(draw, text, max_width, start_size=74, min_size=34):
-    size = start_size
-    while size >= min_size:
-        font = load_font(size)
-        bbox = draw.textbbox((0, 0), text, font=font)
-        width = bbox[2] - bbox[0]
-        if width <= max_width:
-            return font
-        size -= 4
-    return load_font(min_size)
-
-
-def apply_cheki_filter(img):
-    img = ImageEnhance.Color(img).enhance(0.86)
-    img = ImageEnhance.Contrast(img).enhance(0.94)
-    img = ImageEnhance.Brightness(img).enhance(1.06)
-
-    overlay = Image.new("RGB", img.size, (255, 246, 230))
-    img = Image.blend(img, overlay, 0.10)
-
-    noise = Image.new("RGB", img.size)
-    pixels = noise.load()
-    for y in range(img.size[1]):
-        for x in range(img.size[0]):
-            v = random.randint(235, 255)
-            pixels[x, y] = (v, v, v)
-
-    img = Image.blend(img, noise, 0.035)
-    img = img.filter(ImageFilter.SMOOTH_MORE)
-
-    return img
-
-
+# =========================
+# テキスト処理
+# =========================
 @handler.add(MessageEvent, message=TextMessage)
 def handle_text(event):
     user_id = event.source.user_id
     msg = event.message.text.strip()
 
     if msg.startswith("テキスト"):
-        text = msg.replace("テキスト", "", 1).strip()
-        user_texts[user_id] = text or "My Oshi"
-        reply = f"文字を設定したで📸\n「{user_texts[user_id]}」"
+        text = msg.replace("テキスト", "").strip()
+        if not text:
+            text = "My Oshi"
+        user_texts[user_id] = text
+        reply = f"文字を設定したで📸\n「{text}」\n次に画像送って！"
 
     elif msg.startswith("日付"):
-        date_text = msg.replace("日付", "", 1).strip()
-        user_dates[user_id] = date_text or ""
-        reply = f"日付を設定したで📅\n「{user_dates[user_id]}」"
-
-    elif "チェキ" in msg:
-        reply = "① テキスト 好きな文字\n② 日付 2026.05.03\n③ 画像送信\nの順で送ってね📸"
+        date = msg.replace("日付", "").strip()
+        if not date:
+            date = "2026.01.01"
+        user_dates[user_id] = date
+        reply = f"日付を設定したで📅\n「{date}」"
 
     else:
-        user_texts[user_id] = msg
-        reply = f"文字を設定したで📸\n「{msg}」\n必要なら「日付 2026.05.03」も送ってね"
+        reply = "「テキスト ○○」「日付 2026.3.29」って送ってから画像送ってな📸"
 
     line_bot_api.reply_message(
         event.reply_token,
         TextSendMessage(text=reply)
     )
 
-
+# =========================
+# 画像処理
+# =========================
 @handler.add(MessageEvent, message=ImageMessage)
 def handle_image(event):
     user_id = event.source.user_id
-    cheki_text = user_texts.get(user_id, "My Oshi")
-    date_text = user_dates.get(user_id, "")
 
+    text = user_texts.get(user_id, "My Oshi")
+    date = user_dates.get(user_id, "")
+
+    # 画像取得
     message_content = line_bot_api.get_message_content(event.message.id)
-
     with open("/tmp/input.jpg", "wb") as f:
         for chunk in message_content.iter_content():
             f.write(chunk)
 
     img = Image.open("/tmp/input.jpg").convert("RGB")
 
+    # 正方形トリミング
     w, h = img.size
     size = min(w, h)
-    left = (w - size) // 2
-    top = (h - size) // 2
-    img = img.crop((left, top, left + size, top + size))
-    img = img.resize((760, 760))
+    img = img.crop(((w-size)//2, (h-size)//2, (w+size)//2, (h+size)//2))
+
+    # リサイズ
+    img = img.resize((900, 900))
+
+    # チェキ風フィルター
     img = apply_cheki_filter(img)
 
-    # 背景＋影
-    bg = Image.new("RGB", (980, 1260), (232, 232, 228))
-    shadow = Image.new("RGB", (900, 1160), (205, 205, 200))
-    shadow = shadow.filter(ImageFilter.GaussianBlur(8))
-    bg.paste(shadow, (54, 54))
-
-    # チェキ本体
-    frame = Image.new("RGB", (900, 1160), (252, 250, 245))
-    frame.paste(img, (70, 70))
+    # フレーム
+    frame = Image.new("RGB", (1000, 1300), "#f7f5f2")
+    frame.paste(img, (50, 80))
 
     draw = ImageDraw.Draw(frame)
 
-    main_font = fit_text(draw, cheki_text, max_width=760, start_size=74, min_size=38)
-    bbox = draw.textbbox((0, 0), cheki_text, font=main_font)
-    text_width = bbox[2] - bbox[0]
-    x = (900 - text_width) // 2
-    y = 865
+    # フォント
+    text_font = load_font(70)
+    date_font = load_font(40)
 
-    draw.text((x + 1, y + 1), cheki_text, fill=(210, 205, 198), font=main_font)
-    draw.text((x, y), cheki_text, fill=(35, 35, 35), font=main_font)
+    # 中央配置
+    text_bbox = draw.textbbox((0, 0), text, font=text_font)
+    text_w = text_bbox[2] - text_bbox[0]
 
-    if date_text:
-        date_font = load_font(38)
-        bbox = draw.textbbox((0, 0), date_text, font=date_font)
-        date_width = bbox[2] - bbox[0]
-        date_x = (900 - date_width) // 2
-        date_y = 970
-        draw.text((date_x, date_y), date_text, fill=(95, 95, 90), font=date_font)
+    date_bbox = draw.textbbox((0, 0), date, font=date_font)
+    date_w = date_bbox[2] - date_bbox[0]
 
-    bg.paste(frame, (40, 40))
-    bg.save("/tmp/output.jpg", quality=95)
+    # 描画位置
+    text_x = (1000 - text_w) // 2
+    date_x = (1000 - date_w) // 2
 
-    image_url = f"{BASE_URL}/output.jpg?v={int(time.time())}"
+    # 描画
+    draw.text((text_x, 1030), text, fill=(40, 40, 40), font=text_font)
+    draw.text((date_x, 1120), date, fill=(120, 120, 120), font=date_font)
+
+    # 軽い影
+    shadow = frame.filter(ImageFilter.GaussianBlur(8))
+    final = Image.new("RGB", (1040, 1340), "#e5e3df")
+    final.paste(shadow, (20, 20))
+    final.paste(frame, (0, 0))
+
+    final.save("/tmp/output.jpg", quality=95)
+
+    url = f"{BASE_URL}/output.jpg?v={int(time.time())}"
 
     line_bot_api.reply_message(
         event.reply_token,
         ImageSendMessage(
-            original_content_url=image_url,
-            preview_image_url=image_url
+            original_content_url=url,
+            preview_image_url=url
         )
     )
