@@ -16,13 +16,13 @@ app = Flask(__name__)
 
 CHANNEL_ACCESS_TOKEN = os.environ["CHANNEL_ACCESS_TOKEN"]
 CHANNEL_SECRET = os.environ["CHANNEL_SECRET"]
-
 BASE_URL = "https://oshi-cheki-bot.onrender.com"
 
 line_bot_api = LineBotApi(CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(CHANNEL_SECRET)
 
 user_texts = {}
+user_dates = {}
 
 
 @app.route("/", methods=["GET"])
@@ -48,22 +48,54 @@ def callback():
     return "OK"
 
 
+def load_font(size):
+    paths = [
+        "NotoSansJP-Regular.otf",
+        "NotoSansJP-Regular.ttf",
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    ]
+    for path in paths:
+        try:
+            return ImageFont.truetype(path, size)
+        except Exception:
+            pass
+    return ImageFont.load_default()
+
+
+def fit_text(draw, text, max_width, start_size=72, min_size=34):
+    size = start_size
+    while size >= min_size:
+        font = load_font(size)
+        bbox = draw.textbbox((0, 0), text, font=font)
+        width = bbox[2] - bbox[0]
+        if width <= max_width:
+            return font
+        size -= 4
+    return load_font(min_size)
+
+
 @handler.add(MessageEvent, message=TextMessage)
 def handle_text(event):
     user_id = event.source.user_id
-    user_message = event.message.text.strip()
+    msg = event.message.text.strip()
 
-    if user_message.startswith("テキスト"):
-        text = user_message.replace("テキスト", "", 1).strip()
-        if not text:
-            text = "My Oshi"
-        user_texts[user_id] = text
+    if msg.startswith("テキスト"):
+        text = msg.replace("テキスト", "", 1).strip()
+        user_texts[user_id] = text or "My Oshi"
+        reply = f"文字を設定したで📸\n「{user_texts[user_id]}」"
 
-        reply = f"入れる文字を設定したで📸\n「{text}」\n次に画像送って！"
-    elif "チェキ" in user_message:
-        reply = "先に「テキスト 推し最高」みたいに送ってから、画像を送ってくれたらチェキ風にするで📸"
+    elif msg.startswith("日付"):
+        date_text = msg.replace("日付", "", 1).strip()
+        user_dates[user_id] = date_text or ""
+        reply = f"日付を設定したで📅\n「{user_dates[user_id]}」"
+
+    elif "チェキ" in msg:
+        reply = "① テキスト 好きな文字\n② 日付 2026.05.03\n③ 画像送信\nの順で送ってね📸"
+
     else:
-        reply = "「テキスト 好きな文字」を送ってから画像を送ってね📸"
+        user_texts[user_id] = msg
+        reply = f"文字を設定したで📸\n「{msg}」\n必要なら「日付 2026.05.03」も送ってね"
 
     line_bot_api.reply_message(
         event.reply_token,
@@ -75,6 +107,7 @@ def handle_text(event):
 def handle_image(event):
     user_id = event.source.user_id
     cheki_text = user_texts.get(user_id, "My Oshi")
+    date_text = user_dates.get(user_id, "")
 
     message_content = line_bot_api.get_message_content(event.message.id)
 
@@ -84,39 +117,38 @@ def handle_image(event):
 
     img = Image.open("/tmp/input.jpg").convert("RGB")
 
-    # 中央正方形トリミング
     w, h = img.size
     size = min(w, h)
     left = (w - size) // 2
     top = (h - size) // 2
     img = img.crop((left, top, left + size, top + size))
-    img = img.resize((800, 800))
+    img = img.resize((760, 760))
 
-    # チェキ風フレーム
-    frame = Image.new("RGB", (900, 1120), "white")
-    frame.paste(img, (50, 50))
+    frame = Image.new("RGB", (900, 1160), "white")
+    frame.paste(img, (70, 70))
 
     draw = ImageDraw.Draw(frame)
 
-    # Noto Sans JPを使う
-    # GitHubに NotoSansJP-Regular.ttf をアップしておくと反映される
-    try:
-        font = ImageFont.truetype("NotoSansJP-Regular.ttf", 48)
-    except:
-        font = ImageFont.load_default()
-
-    # 文字を中央寄せ
-    bbox = draw.textbbox((0, 0), cheki_text, font=font)
+    # メイン文字：大きめ
+    main_font = fit_text(draw, cheki_text, max_width=760, start_size=76, min_size=38)
+    bbox = draw.textbbox((0, 0), cheki_text, font=main_font)
     text_width = bbox[2] - bbox[0]
     x = (900 - text_width) // 2
-    y = 910
+    y = 875
+    draw.text((x, y), cheki_text, fill=(25, 25, 25), font=main_font)
 
-    draw.text((x, y), cheki_text, fill=(30, 30, 30), font=font)
+    # 日付：任意
+    if date_text:
+        date_font = load_font(34)
+        bbox = draw.textbbox((0, 0), date_text, font=date_font)
+        date_width = bbox[2] - bbox[0]
+        date_x = (900 - date_width) // 2
+        date_y = 975
+        draw.text((date_x, date_y), date_text, fill=(80, 80, 80), font=date_font)
 
     frame.save("/tmp/output.jpg", quality=95)
 
-    cache_buster = int(time.time())
-    image_url = f"{BASE_URL}/output.jpg?v={cache_buster}"
+    image_url = f"{BASE_URL}/output.jpg?v={int(time.time())}"
 
     line_bot_api.reply_message(
         event.reply_token,
