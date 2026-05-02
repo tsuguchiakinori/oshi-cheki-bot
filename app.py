@@ -3,6 +3,7 @@ import time
 import random
 import hashlib
 import math
+from datetime import datetime, timedelta
 
 from flask import Flask, request, abort, send_file
 from linebot import LineBotApi, WebhookHandler
@@ -46,7 +47,15 @@ def load_font(size):
         return ImageFont.load_default()
 
 
-def fit_text(draw, text, max_width, start_size=74, min_size=38):
+def fit_text(draw, text, max_width, start_size=None, min_size=38):
+    if start_size is None:
+        if len(text) <= 6:
+            start_size = 88
+        elif len(text) <= 10:
+            start_size = 80
+        else:
+            start_size = 74
+
     size = start_size
     while size >= min_size:
         font = load_font(size)
@@ -244,7 +253,7 @@ def make_cheki(user_id):
     date = user_dates.get(user_id, "")
 
     font = fit_text(draw, text, 820)
-    date_font = load_font(42)
+    date_font = load_font(40)
 
     bbox = draw.textbbox((0, 0), text, font=font)
     text_x = (1000 - (bbox[2] - bbox[0])) // 2 + random.randint(-15, 15)
@@ -254,7 +263,7 @@ def make_cheki(user_id):
     if date:
         bbox = draw.textbbox((0, 0), date, font=date_font)
         date_x = (1000 - (bbox[2] - bbox[0])) // 2 + random.randint(-10, 10)
-        draw.text((date_x, 1130 + random.randint(-2, 5)), date, fill=(100, 100, 100), font=date_font)
+        draw.text((date_x, 1133 + random.randint(-2, 5)), date, fill=(125, 125, 118), font=date_font)
 
     final_noise = Image.effect_noise(frame.size, 10).convert("RGB")
     frame = Image.blend(frame, final_noise, 0.014)
@@ -264,7 +273,7 @@ def make_cheki(user_id):
 
 
 def date_quick_reply():
-    today = time.strftime("%Y.%m.%d")
+    today = (datetime.utcnow() + timedelta(hours=9)).strftime("%Y.%m.%d")
     return QuickReply(items=[
         QuickReplyButton(action=MessageAction(label="今日", text=today)),
         QuickReplyButton(action=MessageAction(label="なし", text="なし")),
@@ -346,7 +355,7 @@ def handle_text(event):
         user_states[user_id] = "date"
         line_bot_api.reply_message(
             event.reply_token,
-            TextSendMessage(text="日付を送って！（不要ならボタン👇）", quick_reply=date_quick_reply())
+            TextSendMessage(text="日付を送ってね📅 手入力でもOK。不要なら「なし」", quick_reply=date_quick_reply())
         )
         return
 
@@ -363,7 +372,7 @@ def handle_text(event):
 
         line_bot_api.reply_message(
             event.reply_token,
-            TextSendMessage(text="日付を送って！（不要ならボタン👇）", quick_reply=date_quick_reply())
+            TextSendMessage(text="日付を送ってね📅 手入力でもOK。不要なら「なし」", quick_reply=date_quick_reply())
         )
         return
 
@@ -388,7 +397,7 @@ def handle_text(event):
 
         line_bot_api.push_message(
             user_id,
-            TextSendMessage(text="どうする？", quick_reply=after_generate_quick_reply())
+            TextSendMessage(text="完成したで📸 もう一回つくる？", quick_reply=after_generate_quick_reply())
         )
 
         user_states[user_id] = None
