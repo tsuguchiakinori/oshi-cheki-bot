@@ -32,6 +32,7 @@ handler = WebhookHandler(CHANNEL_SECRET)
 user_states = {}
 user_texts = {}
 user_dates = {}
+user_filters = {}
 
 MAX_TEXT_LENGTH = 14
 
@@ -88,22 +89,54 @@ def add_vignette(img, strength=0.22):
     return Image.composite(dark, img, mask)
 
 
-def apply_old_cheki_photo_filter(img):
-    img = ImageEnhance.Color(img).enhance(random.uniform(0.76, 0.84))
-    img = ImageEnhance.Contrast(img).enhance(random.uniform(1.04, 1.10))
-    img = ImageEnhance.Brightness(img).enhance(random.uniform(1.00, 1.05))
+def apply_photo_filter(img, filter_type):
+    if filter_type == "emo":
+        img = ImageEnhance.Color(img).enhance(random.uniform(0.62, 0.72))
+        img = ImageEnhance.Contrast(img).enhance(random.uniform(1.06, 1.12))
+        img = ImageEnhance.Brightness(img).enhance(random.uniform(0.92, 0.98))
 
-    warm = Image.new("RGB", img.size, (255, 234, 202))
-    img = Image.blend(img, warm, random.uniform(0.10, 0.14))
+        warm = Image.new("RGB", img.size, (255, 226, 190))
+        img = Image.blend(img, warm, random.uniform(0.16, 0.22))
 
-    sepia = Image.new("RGB", img.size, (120, 82, 50))
-    img = Image.blend(img, sepia, random.uniform(0.015, 0.03))
+        sepia = Image.new("RGB", img.size, (120, 82, 50))
+        img = Image.blend(img, sepia, random.uniform(0.03, 0.05))
 
-    noise = Image.effect_noise(img.size, random.randint(10, 15)).convert("RGB")
-    img = Image.blend(img, noise, random.uniform(0.025, 0.04))
+        noise = Image.effect_noise(img.size, random.randint(16, 22)).convert("RGB")
+        img = Image.blend(img, noise, random.uniform(0.045, 0.065))
 
-    img = add_vignette(img, strength=random.uniform(0.18, 0.24))
-    img = img.filter(ImageFilter.GaussianBlur(random.uniform(0.06, 0.10)))
+        img = add_vignette(img, strength=random.uniform(0.26, 0.34))
+        img = img.filter(ImageFilter.GaussianBlur(random.uniform(0.10, 0.16)))
+
+    elif filter_type == "bright":
+        img = ImageEnhance.Color(img).enhance(random.uniform(0.98, 1.08))
+        img = ImageEnhance.Contrast(img).enhance(random.uniform(1.10, 1.16))
+        img = ImageEnhance.Brightness(img).enhance(random.uniform(1.10, 1.18))
+
+        cool = Image.new("RGB", img.size, (235, 242, 255))
+        img = Image.blend(img, cool, random.uniform(0.04, 0.08))
+
+        noise = Image.effect_noise(img.size, random.randint(6, 10)).convert("RGB")
+        img = Image.blend(img, noise, random.uniform(0.012, 0.025))
+
+        img = add_vignette(img, strength=random.uniform(0.10, 0.16))
+        img = img.filter(ImageFilter.GaussianBlur(random.uniform(0.02, 0.06)))
+
+    else:
+        img = ImageEnhance.Color(img).enhance(random.uniform(0.76, 0.84))
+        img = ImageEnhance.Contrast(img).enhance(random.uniform(1.04, 1.10))
+        img = ImageEnhance.Brightness(img).enhance(random.uniform(1.00, 1.05))
+
+        warm = Image.new("RGB", img.size, (255, 234, 202))
+        img = Image.blend(img, warm, random.uniform(0.10, 0.14))
+
+        sepia = Image.new("RGB", img.size, (120, 82, 50))
+        img = Image.blend(img, sepia, random.uniform(0.015, 0.03))
+
+        noise = Image.effect_noise(img.size, random.randint(10, 15)).convert("RGB")
+        img = Image.blend(img, noise, random.uniform(0.025, 0.04))
+
+        img = add_vignette(img, strength=random.uniform(0.18, 0.24))
+        img = img.filter(ImageFilter.GaussianBlur(random.uniform(0.06, 0.10)))
 
     return img
 
@@ -258,13 +291,15 @@ def draw_centered_multiline_text(frame, text, draw):
 def make_cheki(user_id):
     key = user_key(user_id)
 
+    filter_type = user_filters.get(user_id, "good")
+
     img = Image.open(f"/tmp/input_{key}.jpg").convert("RGB")
 
     w, h = img.size
     size = min(w, h)
     img = img.crop(((w - size) // 2, (h - size) // 2, (w + size) // 2, (h + size) // 2))
     img = img.resize((900, 900))
-    img = apply_old_cheki_photo_filter(img)
+    img = apply_photo_filter(img, filter_type)
     img = round_corners(img, radius=18)
 
     frame = make_old_paper_frame(1000, 1300)
@@ -305,6 +340,14 @@ def date_quick_reply():
     return QuickReply(items=[
         QuickReplyButton(action=MessageAction(label="今日", text=today)),
         QuickReplyButton(action=MessageAction(label="なし", text="なし")),
+    ])
+
+
+def filter_quick_reply():
+    return QuickReply(items=[
+        QuickReplyButton(action=MessageAction(label="いい感じ", text="filter_good")),
+        QuickReplyButton(action=MessageAction(label="エモい", text="filter_emo")),
+        QuickReplyButton(action=MessageAction(label="盛れる", text="filter_bright")),
     ])
 
 
@@ -350,11 +393,14 @@ def handle_image(event):
         for chunk in content.iter_content():
             f.write(chunk)
 
-    user_states[user_id] = "text"
+    user_states[user_id] = "filter"
 
     line_bot_api.reply_message(
         event.reply_token,
-        TextSendMessage(text="画像受け取ったで📸\n下に入れる文字を送って！")
+        TextSendMessage(
+            text="どの雰囲気にする？👇",
+            quick_reply=filter_quick_reply()
+        )
     )
 
 
@@ -365,6 +411,7 @@ def handle_text(event):
 
     if msg == "やり直し":
         user_states[user_id] = None
+        user_filters[user_id] = "good"
         line_bot_api.reply_message(
             event.reply_token,
             TextSendMessage(text="もう一度画像を送ってね📸")
@@ -384,6 +431,35 @@ def handle_text(event):
         line_bot_api.reply_message(
             event.reply_token,
             TextSendMessage(text="日付を送ってね📅 手入力でもOK。不要なら「なし」", quick_reply=date_quick_reply())
+        )
+        return
+
+    if user_states.get(user_id) == "filter":
+        filter_map = {
+            "filter_good": "good",
+            "filter_emo": "emo",
+            "filter_bright": "bright"
+        }
+
+        if msg in filter_map:
+            user_filters[user_id] = filter_map[msg]
+            user_states[user_id] = "text"
+
+            filter_label = {
+                "filter_good": "いい感じ",
+                "filter_emo": "エモい",
+                "filter_bright": "盛れる"
+            }[msg]
+
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text=f"「{filter_label}」で作るね📸\n下に入れる文字を送って！")
+            )
+            return
+
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text="ボタンから雰囲気を選んでね👇", quick_reply=filter_quick_reply())
         )
         return
 
