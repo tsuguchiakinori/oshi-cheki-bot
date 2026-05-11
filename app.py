@@ -75,62 +75,120 @@ def add_light_vignette(img, alpha=28):
     d = ImageDraw.Draw(overlay)
     w, h = img.size
 
-    d.rectangle((0, 0, w, 40), fill=(40, 30, 20, alpha))
-    d.rectangle((0, h - 40, w, h), fill=(40, 30, 20, alpha))
-    d.rectangle((0, 0, 40, h), fill=(40, 30, 20, alpha))
-    d.rectangle((w - 40, 0, w, h), fill=(40, 30, 20, alpha))
+    d.rectangle((0, 0, w, 55), fill=(40, 30, 20, alpha))
+    d.rectangle((0, h - 55, w, h), fill=(40, 30, 20, alpha))
+    d.rectangle((0, 0, 55, h), fill=(40, 30, 20, alpha))
+    d.rectangle((w - 55, 0, w, h), fill=(40, 30, 20, alpha))
 
-    overlay = overlay.filter(ImageFilter.GaussianBlur(35))
+    overlay = overlay.filter(ImageFilter.GaussianBlur(42))
     return Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
 
 
 def apply_photo_filter(img, filter_type, variant=0):
+    # variant=0 / 1 で違いが分かるように強めに差分を作る
+
     if filter_type == "emo":
-        img = ImageEnhance.Color(img).enhance(random.uniform(0.64, 0.74))
-        img = ImageEnhance.Contrast(img).enhance(random.uniform(1.06, 1.12))
-        img = ImageEnhance.Brightness(img).enhance(random.uniform(0.92, 0.99))
+        if variant == 0:
+            # エモい：あたたかめ
+            img = ImageEnhance.Color(img).enhance(0.68)
+            img = ImageEnhance.Contrast(img).enhance(1.10)
+            img = ImageEnhance.Brightness(img).enhance(0.96)
 
-        warm = Image.new("RGB", img.size, (255, 226, 190))
-        img = Image.blend(img, warm, random.uniform(0.15, 0.21))
+            warm = Image.new("RGB", img.size, (255, 224, 188))
+            img = Image.blend(img, warm, 0.22)
 
-        sepia = Image.new("RGB", img.size, (120, 82, 50))
-        img = Image.blend(img, sepia, random.uniform(0.025, 0.045))
+            sepia = Image.new("RGB", img.size, (125, 85, 52))
+            img = Image.blend(img, sepia, 0.04)
 
-        noise = Image.effect_noise(img.size, random.randint(9, 13)).convert("RGB")
-        img = Image.blend(img, noise, random.uniform(0.025, 0.04))
+            noise = Image.effect_noise(img.size, 12).convert("RGB")
+            img = Image.blend(img, noise, 0.035)
 
-        img = add_light_vignette(img, alpha=random.randint(24, 36))
-        img = img.filter(ImageFilter.GaussianBlur(random.uniform(0.06, 0.10)))
+            img = add_light_vignette(img, alpha=30)
+            img = img.filter(ImageFilter.GaussianBlur(0.08))
+
+        else:
+            # エモい：暗めフィルム
+            img = ImageEnhance.Color(img).enhance(0.58)
+            img = ImageEnhance.Contrast(img).enhance(1.16)
+            img = ImageEnhance.Brightness(img).enhance(0.88)
+
+            warm = Image.new("RGB", img.size, (245, 214, 178))
+            img = Image.blend(img, warm, 0.26)
+
+            sepia = Image.new("RGB", img.size, (105, 70, 45))
+            img = Image.blend(img, sepia, 0.07)
+
+            noise = Image.effect_noise(img.size, 16).convert("RGB")
+            img = Image.blend(img, noise, 0.052)
+
+            img = add_light_vignette(img, alpha=44)
+            img = img.filter(ImageFilter.GaussianBlur(0.12))
 
     elif filter_type == "bright":
-        img = ImageEnhance.Color(img).enhance(random.uniform(0.98, 1.08))
-        img = ImageEnhance.Contrast(img).enhance(random.uniform(1.08, 1.14))
-        img = ImageEnhance.Brightness(img).enhance(random.uniform(1.08, 1.16))
+        if variant == 0:
+            # 盛れる：明るめ
+            img = ImageEnhance.Color(img).enhance(1.08)
+            img = ImageEnhance.Contrast(img).enhance(1.14)
+            img = ImageEnhance.Brightness(img).enhance(1.16)
 
-        cool = Image.new("RGB", img.size, (235, 242, 255))
-        img = Image.blend(img, cool, random.uniform(0.03, 0.07))
+            cool = Image.new("RGB", img.size, (236, 244, 255))
+            img = Image.blend(img, cool, 0.05)
 
-        noise = Image.effect_noise(img.size, random.randint(4, 7)).convert("RGB")
-        img = Image.blend(img, noise, random.uniform(0.008, 0.016))
+            noise = Image.effect_noise(img.size, 5).convert("RGB")
+            img = Image.blend(img, noise, 0.01)
 
-        img = add_light_vignette(img, alpha=random.randint(10, 18))
+            img = add_light_vignette(img, alpha=12)
+
+        else:
+            # 盛れる：白っぽめ
+            img = ImageEnhance.Color(img).enhance(0.95)
+            img = ImageEnhance.Contrast(img).enhance(1.07)
+            img = ImageEnhance.Brightness(img).enhance(1.24)
+
+            white = Image.new("RGB", img.size, (255, 250, 240))
+            img = Image.blend(img, white, 0.13)
+
+            cool = Image.new("RGB", img.size, (238, 246, 255))
+            img = Image.blend(img, cool, 0.08)
+
+            noise = Image.effect_noise(img.size, 4).convert("RGB")
+            img = Image.blend(img, noise, 0.008)
+
+            img = add_light_vignette(img, alpha=8)
 
     else:
-        img = ImageEnhance.Color(img).enhance(random.uniform(0.78, 0.86))
-        img = ImageEnhance.Contrast(img).enhance(random.uniform(1.04, 1.09))
-        img = ImageEnhance.Brightness(img).enhance(random.uniform(1.00, 1.05))
+        if variant == 0:
+            # いい感じ：自然
+            img = ImageEnhance.Color(img).enhance(0.82)
+            img = ImageEnhance.Contrast(img).enhance(1.07)
+            img = ImageEnhance.Brightness(img).enhance(1.03)
 
-        warm = Image.new("RGB", img.size, (255, 234, 202))
-        img = Image.blend(img, warm, random.uniform(0.09, 0.13))
+            warm = Image.new("RGB", img.size, (255, 234, 202))
+            img = Image.blend(img, warm, 0.11)
 
-        sepia = Image.new("RGB", img.size, (120, 82, 50))
-        img = Image.blend(img, sepia, random.uniform(0.012, 0.025))
+            sepia = Image.new("RGB", img.size, (120, 82, 50))
+            img = Image.blend(img, sepia, 0.018)
 
-        noise = Image.effect_noise(img.size, random.randint(6, 10)).convert("RGB")
-        img = Image.blend(img, noise, random.uniform(0.018, 0.03))
+            noise = Image.effect_noise(img.size, 7).convert("RGB")
+            img = Image.blend(img, noise, 0.022)
 
-        img = add_light_vignette(img, alpha=random.randint(18, 26))
-        img = img.filter(ImageFilter.GaussianBlur(random.uniform(0.04, 0.07)))
+            img = add_light_vignette(img, alpha=20)
+            img = img.filter(ImageFilter.GaussianBlur(0.05))
+
+        else:
+            # いい感じ：淡め
+            img = ImageEnhance.Color(img).enhance(0.72)
+            img = ImageEnhance.Contrast(img).enhance(0.96)
+            img = ImageEnhance.Brightness(img).enhance(1.09)
+
+            cream = Image.new("RGB", img.size, (255, 242, 218))
+            img = Image.blend(img, cream, 0.17)
+
+            noise = Image.effect_noise(img.size, 8).convert("RGB")
+            img = Image.blend(img, noise, 0.025)
+
+            img = add_light_vignette(img, alpha=16)
+            img = img.filter(ImageFilter.GaussianBlur(0.07))
 
     return img
 
@@ -339,6 +397,7 @@ def filter_quick_reply():
 def after_generate_quick_reply():
     return QuickReply(items=[
         QuickReplyButton(action=MessageAction(label="もう一回つくる", text="やり直し")),
+        QuickReplyButton(action=MessageAction(label="雰囲気だけ変える", text="雰囲気だけ変える")),
         QuickReplyButton(action=MessageAction(label="文字だけ変える", text="文字変更")),
         QuickReplyButton(action=MessageAction(label="日付だけ変える", text="日付変更")),
     ])
@@ -365,6 +424,35 @@ def callback():
         abort(400)
 
     return "OK"
+
+
+def generate_and_send(user_id):
+    output_keys = []
+    for i in range(2):
+        output_keys.append(make_cheki(user_id, variant=i))
+
+    line_bot_api.push_message(
+        user_id,
+        TextSendMessage(text="2パターン作ったよ📸\n好きな方を保存してね👇")
+    )
+
+    for output_key in output_keys:
+        image_url = f"{BASE_URL}/output/{output_key}.jpg?{int(time.time())}"
+        line_bot_api.push_message(
+            user_id,
+            ImageSendMessage(
+                original_content_url=image_url,
+                preview_image_url=image_url
+            )
+        )
+
+    line_bot_api.push_message(
+        user_id,
+        TextSendMessage(
+            text="いい感じにできたね📸✨\nSNSでシェアしてみて👇\n#オシフィルム\n\nもう一回つくる？",
+            quick_reply=after_generate_quick_reply()
+        )
+    )
 
 
 @handler.add(MessageEvent, message=ImageMessage)
@@ -403,6 +491,14 @@ def handle_text(event):
         )
         return
 
+    if msg == "雰囲気だけ変える":
+        user_states[user_id] = "filter_change"
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text="どの雰囲気に変える？👇", quick_reply=filter_quick_reply())
+        )
+        return
+
     if msg == "文字変更":
         user_states[user_id] = "text"
         line_bot_api.reply_message(
@@ -419,7 +515,7 @@ def handle_text(event):
         )
         return
 
-    if user_states.get(user_id) == "filter":
+    if user_states.get(user_id) in ["filter", "filter_change"]:
         filter_map = {
             "いい感じ": "good",
             "エモい": "emo",
@@ -428,6 +524,16 @@ def handle_text(event):
 
         if msg in filter_map:
             user_filters[user_id] = filter_map[msg]
+
+            if user_states.get(user_id) == "filter_change":
+                user_states[user_id] = None
+                line_bot_api.reply_message(
+                    event.reply_token,
+                    TextSendMessage(text=f"「{msg}」で作り直すね📸")
+                )
+                generate_and_send(user_id)
+                return
+
             user_states[user_id] = "text"
 
             line_bot_api.reply_message(
@@ -467,32 +573,7 @@ def handle_text(event):
             TextSendMessage(text="2パターン現像中…📸")
         )
 
-        output_keys = []
-        for i in range(2):
-            output_keys.append(make_cheki(user_id, variant=i))
-
-        line_bot_api.push_message(
-            user_id,
-            TextSendMessage(text="2パターン作ったよ📸\n好きなの保存してね👇")
-        )
-
-        for output_key in output_keys:
-            image_url = f"{BASE_URL}/output/{output_key}.jpg?{int(time.time())}"
-            line_bot_api.push_message(
-                user_id,
-                ImageSendMessage(
-                    original_content_url=image_url,
-                    preview_image_url=image_url
-                )
-            )
-
-        line_bot_api.push_message(
-            user_id,
-            TextSendMessage(
-                text="いい感じにできたね📸✨\nSNSでシェアしてみて👇\n#オシフィルム\n\nもう一回つくる？",
-                quick_reply=after_generate_quick_reply()
-            )
-        )
+        generate_and_send(user_id)
 
         user_states[user_id] = None
         return
