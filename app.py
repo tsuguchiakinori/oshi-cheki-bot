@@ -88,53 +88,55 @@ def add_vignette(img, strength=0.22):
     return Image.composite(dark, img, mask)
 
 
-def apply_photo_filter(img, filter_type):
+def apply_photo_filter(img, filter_type, variant=0):
+    random_adjust = variant * 0.01
+
     if filter_type == "emo":
-        img = ImageEnhance.Color(img).enhance(random.uniform(0.62, 0.72))
+        img = ImageEnhance.Color(img).enhance(random.uniform(0.62, 0.72) - random_adjust)
         img = ImageEnhance.Contrast(img).enhance(random.uniform(1.06, 1.12))
-        img = ImageEnhance.Brightness(img).enhance(random.uniform(0.92, 0.98))
+        img = ImageEnhance.Brightness(img).enhance(random.uniform(0.90, 0.98))
 
         warm = Image.new("RGB", img.size, (255, 226, 190))
-        img = Image.blend(img, warm, random.uniform(0.16, 0.22))
+        img = Image.blend(img, warm, random.uniform(0.16, 0.24))
 
         sepia = Image.new("RGB", img.size, (120, 82, 50))
-        img = Image.blend(img, sepia, random.uniform(0.03, 0.05))
+        img = Image.blend(img, sepia, random.uniform(0.03, 0.055))
 
-        noise = Image.effect_noise(img.size, random.randint(16, 22)).convert("RGB")
-        img = Image.blend(img, noise, random.uniform(0.045, 0.065))
+        noise = Image.effect_noise(img.size, random.randint(16, 24)).convert("RGB")
+        img = Image.blend(img, noise, random.uniform(0.045, 0.07))
 
-        img = add_vignette(img, strength=random.uniform(0.26, 0.34))
+        img = add_vignette(img, strength=random.uniform(0.26, 0.36))
         img = img.filter(ImageFilter.GaussianBlur(random.uniform(0.10, 0.16)))
 
     elif filter_type == "bright":
-        img = ImageEnhance.Color(img).enhance(random.uniform(0.98, 1.08))
-        img = ImageEnhance.Contrast(img).enhance(random.uniform(1.10, 1.16))
-        img = ImageEnhance.Brightness(img).enhance(random.uniform(1.10, 1.18))
+        img = ImageEnhance.Color(img).enhance(random.uniform(0.98, 1.10))
+        img = ImageEnhance.Contrast(img).enhance(random.uniform(1.10, 1.18))
+        img = ImageEnhance.Brightness(img).enhance(random.uniform(1.10, 1.20))
 
         cool = Image.new("RGB", img.size, (235, 242, 255))
-        img = Image.blend(img, cool, random.uniform(0.04, 0.08))
+        img = Image.blend(img, cool, random.uniform(0.04, 0.09))
 
-        noise = Image.effect_noise(img.size, random.randint(6, 10)).convert("RGB")
-        img = Image.blend(img, noise, random.uniform(0.012, 0.025))
+        noise = Image.effect_noise(img.size, random.randint(6, 11)).convert("RGB")
+        img = Image.blend(img, noise, random.uniform(0.012, 0.026))
 
-        img = add_vignette(img, strength=random.uniform(0.10, 0.16))
+        img = add_vignette(img, strength=random.uniform(0.10, 0.17))
         img = img.filter(ImageFilter.GaussianBlur(random.uniform(0.02, 0.06)))
 
     else:
-        img = ImageEnhance.Color(img).enhance(random.uniform(0.76, 0.84))
-        img = ImageEnhance.Contrast(img).enhance(random.uniform(1.04, 1.10))
-        img = ImageEnhance.Brightness(img).enhance(random.uniform(1.00, 1.05))
+        img = ImageEnhance.Color(img).enhance(random.uniform(0.76, 0.86))
+        img = ImageEnhance.Contrast(img).enhance(random.uniform(1.04, 1.11))
+        img = ImageEnhance.Brightness(img).enhance(random.uniform(1.00, 1.06))
 
         warm = Image.new("RGB", img.size, (255, 234, 202))
-        img = Image.blend(img, warm, random.uniform(0.10, 0.14))
+        img = Image.blend(img, warm, random.uniform(0.10, 0.15))
 
         sepia = Image.new("RGB", img.size, (120, 82, 50))
-        img = Image.blend(img, sepia, random.uniform(0.015, 0.03))
+        img = Image.blend(img, sepia, random.uniform(0.015, 0.035))
 
-        noise = Image.effect_noise(img.size, random.randint(10, 15)).convert("RGB")
-        img = Image.blend(img, noise, random.uniform(0.025, 0.04))
+        noise = Image.effect_noise(img.size, random.randint(10, 16)).convert("RGB")
+        img = Image.blend(img, noise, random.uniform(0.025, 0.045))
 
-        img = add_vignette(img, strength=random.uniform(0.18, 0.24))
+        img = add_vignette(img, strength=random.uniform(0.18, 0.25))
         img = img.filter(ImageFilter.GaussianBlur(random.uniform(0.06, 0.10)))
 
     return img
@@ -287,9 +289,8 @@ def draw_centered_multiline_text(frame, text, draw):
         draw_hand_text(frame, line, x, y, font)
 
 
-def make_cheki(user_id):
+def make_cheki(user_id, variant=0):
     key = user_key(user_id)
-
     filter_type = user_filters.get(user_id, "good")
 
     img = Image.open(f"/tmp/input_{key}.jpg").convert("RGB")
@@ -298,13 +299,13 @@ def make_cheki(user_id):
     size = min(w, h)
     img = img.crop(((w - size) // 2, (h - size) // 2, (w + size) // 2, (h + size) // 2))
     img = img.resize((900, 900))
-    img = apply_photo_filter(img, filter_type)
+    img = apply_photo_filter(img, filter_type, variant=variant)
     img = round_corners(img, radius=18)
 
     frame = make_old_paper_frame(1000, 1300)
 
-    photo_x = 50 + random.randint(-5, 5)
-    photo_y = 80 + random.randint(-4, 4)
+    photo_x = 50 + random.randint(-6, 6)
+    photo_y = 80 + random.randint(-5, 5)
     frame.paste(img, (photo_x, photo_y), img)
 
     draw = ImageDraw.Draw(frame)
@@ -327,11 +328,12 @@ def make_cheki(user_id):
 
         draw.text((date_x, date_y), date, fill=(125, 125, 118), font=date_font)
 
-    final_noise = Image.effect_noise(frame.size, 10).convert("RGB")
-    frame = Image.blend(frame, final_noise, 0.014)
+    final_noise = Image.effect_noise(frame.size, 10 + variant * 2).convert("RGB")
+    frame = Image.blend(frame, final_noise, 0.014 + variant * 0.002)
 
-    frame.save(f"/tmp/output_{key}.jpg", quality=95)
-    return key
+    output_key = f"{key}_{variant}"
+    frame.save(f"/tmp/output_{output_key}.jpg", quality=95)
+    return output_key
 
 
 def date_quick_reply():
@@ -478,23 +480,34 @@ def handle_text(event):
 
         line_bot_api.reply_message(
             event.reply_token,
-            TextSendMessage(text="いい感じに現像中…📸")
+            TextSendMessage(text="3パターン現像中…📸")
         )
 
-        key = make_cheki(user_id)
-        image_url = f"{BASE_URL}/output/{key}.jpg?{int(time.time())}"
+        output_keys = []
+        for i in range(3):
+            output_keys.append(make_cheki(user_id, variant=i))
 
         line_bot_api.push_message(
             user_id,
-            ImageSendMessage(
-                original_content_url=image_url,
-                preview_image_url=image_url
+            TextSendMessage(text="3パターン作ったよ📸\n好きなの保存してね👇")
+        )
+
+        for output_key in output_keys:
+            image_url = f"{BASE_URL}/output/{output_key}.jpg?{int(time.time())}"
+            line_bot_api.push_message(
+                user_id,
+                ImageSendMessage(
+                    original_content_url=image_url,
+                    preview_image_url=image_url
+                )
             )
-        )
 
         line_bot_api.push_message(
             user_id,
-            TextSendMessage(text="完成したで📸 もう一回つくる？", quick_reply=after_generate_quick_reply())
+            TextSendMessage(
+                text="いい感じにできたね📸✨\nSNSでシェアしてみて👇\n#オシフィルム\n\nもう一回つくる？",
+                quick_reply=after_generate_quick_reply()
+            )
         )
 
         user_states[user_id] = None
