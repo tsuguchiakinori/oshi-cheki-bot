@@ -51,7 +51,6 @@ def load_font(size):
 def split_text(text):
     if len(text) <= 10:
         return [text]
-
     mid = len(text) // 2
     return [text[:mid], text[mid:]]
 
@@ -345,9 +344,9 @@ def date_quick_reply():
 
 def filter_quick_reply():
     return QuickReply(items=[
-        QuickReplyButton(action=MessageAction(label="いい感じ", text="filter_good")),
-        QuickReplyButton(action=MessageAction(label="エモい", text="filter_emo")),
-        QuickReplyButton(action=MessageAction(label="盛れる", text="filter_bright")),
+        QuickReplyButton(action=MessageAction(label="いい感じ", text="いい感じ")),
+        QuickReplyButton(action=MessageAction(label="エモい", text="エモい")),
+        QuickReplyButton(action=MessageAction(label="盛れる", text="盛れる")),
     ])
 
 
@@ -436,24 +435,18 @@ def handle_text(event):
 
     if user_states.get(user_id) == "filter":
         filter_map = {
-            "filter_good": "good",
-            "filter_emo": "emo",
-            "filter_bright": "bright"
+            "いい感じ": "good",
+            "エモい": "emo",
+            "盛れる": "bright"
         }
 
         if msg in filter_map:
             user_filters[user_id] = filter_map[msg]
             user_states[user_id] = "text"
 
-            filter_label = {
-                "filter_good": "いい感じ",
-                "filter_emo": "エモい",
-                "filter_bright": "盛れる"
-            }[msg]
-
             line_bot_api.reply_message(
                 event.reply_token,
-                TextSendMessage(text=f"「{filter_label}」で作るね📸\n下に入れる文字を送って！")
+                TextSendMessage(text=f"「{msg}」で作るね📸\n下に入れる文字を送って！")
             )
             return
 
