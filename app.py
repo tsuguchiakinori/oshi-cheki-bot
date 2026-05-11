@@ -2,7 +2,6 @@ import os
 import time
 import random
 import hashlib
-import math
 from datetime import datetime, timedelta
 
 from flask import Flask, request, abort, send_file
@@ -71,73 +70,67 @@ def get_text_width(draw, text, font):
     return bbox[2] - bbox[0]
 
 
-def add_vignette(img, strength=0.22):
+def add_light_vignette(img, alpha=28):
+    overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    d = ImageDraw.Draw(overlay)
     w, h = img.size
-    mask = Image.new("L", (w, h), 0)
-    px = mask.load()
 
-    cx, cy = w / 2, h / 2
-    max_dist = math.sqrt(cx**2 + cy**2)
+    d.rectangle((0, 0, w, 40), fill=(40, 30, 20, alpha))
+    d.rectangle((0, h - 40, w, h), fill=(40, 30, 20, alpha))
+    d.rectangle((0, 0, 40, h), fill=(40, 30, 20, alpha))
+    d.rectangle((w - 40, 0, w, h), fill=(40, 30, 20, alpha))
 
-    for y in range(h):
-        for x in range(w):
-            dist = math.sqrt((x - cx) ** 2 + (y - cy) ** 2)
-            px[x, y] = int(255 * (dist / max_dist) ** 1.8 * strength)
-
-    dark = Image.new("RGB", (w, h), (45, 36, 28))
-    return Image.composite(dark, img, mask)
+    overlay = overlay.filter(ImageFilter.GaussianBlur(35))
+    return Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
 
 
 def apply_photo_filter(img, filter_type, variant=0):
-    random_adjust = variant * 0.01
-
     if filter_type == "emo":
-        img = ImageEnhance.Color(img).enhance(random.uniform(0.62, 0.72) - random_adjust)
+        img = ImageEnhance.Color(img).enhance(random.uniform(0.64, 0.74))
         img = ImageEnhance.Contrast(img).enhance(random.uniform(1.06, 1.12))
-        img = ImageEnhance.Brightness(img).enhance(random.uniform(0.90, 0.98))
+        img = ImageEnhance.Brightness(img).enhance(random.uniform(0.92, 0.99))
 
         warm = Image.new("RGB", img.size, (255, 226, 190))
-        img = Image.blend(img, warm, random.uniform(0.16, 0.24))
+        img = Image.blend(img, warm, random.uniform(0.15, 0.21))
 
         sepia = Image.new("RGB", img.size, (120, 82, 50))
-        img = Image.blend(img, sepia, random.uniform(0.03, 0.055))
+        img = Image.blend(img, sepia, random.uniform(0.025, 0.045))
 
-        noise = Image.effect_noise(img.size, random.randint(16, 24)).convert("RGB")
-        img = Image.blend(img, noise, random.uniform(0.045, 0.07))
+        noise = Image.effect_noise(img.size, random.randint(9, 13)).convert("RGB")
+        img = Image.blend(img, noise, random.uniform(0.025, 0.04))
 
-        img = add_vignette(img, strength=random.uniform(0.26, 0.36))
-        img = img.filter(ImageFilter.GaussianBlur(random.uniform(0.10, 0.16)))
+        img = add_light_vignette(img, alpha=random.randint(24, 36))
+        img = img.filter(ImageFilter.GaussianBlur(random.uniform(0.06, 0.10)))
 
     elif filter_type == "bright":
-        img = ImageEnhance.Color(img).enhance(random.uniform(0.98, 1.10))
-        img = ImageEnhance.Contrast(img).enhance(random.uniform(1.10, 1.18))
-        img = ImageEnhance.Brightness(img).enhance(random.uniform(1.10, 1.20))
+        img = ImageEnhance.Color(img).enhance(random.uniform(0.98, 1.08))
+        img = ImageEnhance.Contrast(img).enhance(random.uniform(1.08, 1.14))
+        img = ImageEnhance.Brightness(img).enhance(random.uniform(1.08, 1.16))
 
         cool = Image.new("RGB", img.size, (235, 242, 255))
-        img = Image.blend(img, cool, random.uniform(0.04, 0.09))
+        img = Image.blend(img, cool, random.uniform(0.03, 0.07))
 
-        noise = Image.effect_noise(img.size, random.randint(6, 11)).convert("RGB")
-        img = Image.blend(img, noise, random.uniform(0.012, 0.026))
+        noise = Image.effect_noise(img.size, random.randint(4, 7)).convert("RGB")
+        img = Image.blend(img, noise, random.uniform(0.008, 0.016))
 
-        img = add_vignette(img, strength=random.uniform(0.10, 0.17))
-        img = img.filter(ImageFilter.GaussianBlur(random.uniform(0.02, 0.06)))
+        img = add_light_vignette(img, alpha=random.randint(10, 18))
 
     else:
-        img = ImageEnhance.Color(img).enhance(random.uniform(0.76, 0.86))
-        img = ImageEnhance.Contrast(img).enhance(random.uniform(1.04, 1.11))
-        img = ImageEnhance.Brightness(img).enhance(random.uniform(1.00, 1.06))
+        img = ImageEnhance.Color(img).enhance(random.uniform(0.78, 0.86))
+        img = ImageEnhance.Contrast(img).enhance(random.uniform(1.04, 1.09))
+        img = ImageEnhance.Brightness(img).enhance(random.uniform(1.00, 1.05))
 
         warm = Image.new("RGB", img.size, (255, 234, 202))
-        img = Image.blend(img, warm, random.uniform(0.10, 0.15))
+        img = Image.blend(img, warm, random.uniform(0.09, 0.13))
 
         sepia = Image.new("RGB", img.size, (120, 82, 50))
-        img = Image.blend(img, sepia, random.uniform(0.015, 0.035))
+        img = Image.blend(img, sepia, random.uniform(0.012, 0.025))
 
-        noise = Image.effect_noise(img.size, random.randint(10, 16)).convert("RGB")
-        img = Image.blend(img, noise, random.uniform(0.025, 0.045))
+        noise = Image.effect_noise(img.size, random.randint(6, 10)).convert("RGB")
+        img = Image.blend(img, noise, random.uniform(0.018, 0.03))
 
-        img = add_vignette(img, strength=random.uniform(0.18, 0.25))
-        img = img.filter(ImageFilter.GaussianBlur(random.uniform(0.06, 0.10)))
+        img = add_light_vignette(img, alpha=random.randint(18, 26))
+        img = img.filter(ImageFilter.GaussianBlur(random.uniform(0.04, 0.07)))
 
     return img
 
@@ -151,7 +144,7 @@ def draw_soft_stain(base, x, y, rx, ry, color, alpha, blur=18):
 
 
 def add_edge_and_bottom_stains(base, width, height):
-    edge_count = random.randint(3, 7)
+    edge_count = random.randint(2, 4)
 
     for _ in range(edge_count):
         side = random.choice(["left", "right", "top", "bottom"])
@@ -169,34 +162,34 @@ def add_edge_and_bottom_stains(base, width, height):
             x = random.randint(0, width)
             y = random.randint(height - 220, height + 30)
 
-        rx = random.randint(18, 65)
-        ry = random.randint(10, 48)
+        rx = random.randint(18, 55)
+        ry = random.randint(10, 38)
         color = random.choice([
             (190, 178, 150),
             (205, 192, 165),
             (176, 160, 132),
             (220, 207, 181),
         ])
-        alpha = random.randint(10, 22)
+        alpha = random.randint(8, 16)
 
-        base = draw_soft_stain(base, x, y, rx, ry, color, alpha, blur=random.randint(14, 26))
+        base = draw_soft_stain(base, x, y, rx, ry, color, alpha, blur=random.randint(12, 22))
 
-    bottom_count = random.randint(2, 5)
+    bottom_count = random.randint(1, 3)
 
     for _ in range(bottom_count):
         x = random.randint(80, width - 80)
         y = random.randint(1010, height - 60)
-        rx = random.randint(25, 90)
-        ry = random.randint(10, 45)
+        rx = random.randint(25, 75)
+        ry = random.randint(10, 35)
 
         color = random.choice([
             (196, 184, 155),
             (212, 198, 170),
             (180, 164, 138),
         ])
-        alpha = random.randint(8, 18)
+        alpha = random.randint(6, 14)
 
-        base = draw_soft_stain(base, x, y, rx, ry, color, alpha, blur=random.randint(18, 32))
+        base = draw_soft_stain(base, x, y, rx, ry, color, alpha, blur=random.randint(16, 26))
 
     return base
 
@@ -205,30 +198,21 @@ def make_old_paper_frame(width, height):
     base = Image.new("RGB", (width, height), "#f3eddf")
 
     warm = Image.new("RGB", (width, height), (255, 239, 210))
-    base = Image.blend(base, warm, 0.25)
+    base = Image.blend(base, warm, 0.23)
 
-    noise = Image.effect_noise((width, height), 24).convert("RGB")
-    base = Image.blend(base, noise, 0.04)
+    noise = Image.effect_noise((width, height), 12).convert("RGB")
+    base = Image.blend(base, noise, 0.025)
 
-    edge = Image.new("L", (width, height), 0)
-    px = edge.load()
+    overlay = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    d = ImageDraw.Draw(overlay)
 
-    for y in range(height):
-        for x in range(width):
-            d = min(x, width - x, y, height - y)
-            v = max(0, 1 - d / 240)
-            px[x, y] = int(255 * (v ** 1.8) * 0.20)
+    d.rectangle((0, 0, width, 55), fill=(185, 170, 145, 20))
+    d.rectangle((0, height - 90, width, height), fill=(190, 175, 150, 22))
+    d.rectangle((0, 0, 55, height), fill=(185, 170, 145, 18))
+    d.rectangle((width - 55, 0, width, height), fill=(185, 170, 145, 18))
 
-    aged = Image.new("RGB", (width, height), (216, 204, 182))
-    base = Image.composite(aged, base, edge)
-
-    gradient = Image.new("L", (1, height))
-    for y in range(height):
-        gradient.putpixel((0, y), int(255 * (y / height) ** 2 * 0.11))
-
-    alpha = gradient.resize((width, height))
-    shade = Image.new("RGB", (width, height), (223, 214, 196))
-    base = Image.composite(shade, base, alpha)
+    overlay = overlay.filter(ImageFilter.GaussianBlur(45))
+    base = Image.alpha_composite(base.convert("RGBA"), overlay).convert("RGB")
 
     base = add_edge_and_bottom_stains(base, width, height)
 
@@ -328,11 +312,11 @@ def make_cheki(user_id, variant=0):
 
         draw.text((date_x, date_y), date, fill=(125, 125, 118), font=date_font)
 
-    final_noise = Image.effect_noise(frame.size, 10 + variant * 2).convert("RGB")
-    frame = Image.blend(frame, final_noise, 0.014 + variant * 0.002)
+    final_noise = Image.effect_noise(frame.size, 5 + variant).convert("RGB")
+    frame = Image.blend(frame, final_noise, 0.008 + variant * 0.001)
 
     output_key = f"{key}_{variant}"
-    frame.save(f"/tmp/output_{output_key}.jpg", quality=95)
+    frame.save(f"/tmp/output_{output_key}.jpg", quality=92)
     return output_key
 
 
@@ -480,16 +464,16 @@ def handle_text(event):
 
         line_bot_api.reply_message(
             event.reply_token,
-            TextSendMessage(text="3パターン現像中…📸")
+            TextSendMessage(text="2パターン現像中…📸")
         )
 
         output_keys = []
-        for i in range(3):
+        for i in range(2):
             output_keys.append(make_cheki(user_id, variant=i))
 
         line_bot_api.push_message(
             user_id,
-            TextSendMessage(text="3パターン作ったよ📸\n好きなの保存してね👇")
+            TextSendMessage(text="2パターン作ったよ📸\n好きなの保存してね👇")
         )
 
         for output_key in output_keys:
