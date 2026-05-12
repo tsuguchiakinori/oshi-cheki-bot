@@ -2,6 +2,8 @@ import os
 import time
 import random
 import hashlib
+import json
+import uuid
 from datetime import datetime, timedelta
 
 from flask import Flask, request, abort, send_file
@@ -19,11 +21,17 @@ from linebot.models import (
 )
 from PIL import Image, ImageDraw, ImageFont, ImageEnhance, ImageFilter
 
+import gspread
+from google.oauth2.service_account import Credentials
+
 app = Flask(__name__)
 
 CHANNEL_ACCESS_TOKEN = os.environ["CHANNEL_ACCESS_TOKEN"]
 CHANNEL_SECRET = os.environ["CHANNEL_SECRET"]
 BASE_URL = "https://oshi-cheki-bot.onrender.com"
+
+SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID")
+GOOGLE_CREDENTIALS = os.environ.get("GOOGLE_CREDENTIALS")
 
 line_bot_api = LineBotApi(CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(CHANNEL_SECRET)
@@ -32,12 +40,116 @@ user_states = {}
 user_texts = {}
 user_dates = {}
 user_filters = {}
+user_sessions = {}
+user_image_info = {}
+user_retry_types = {}
+user_generation_counts = {}
 
 MAX_TEXT_LENGTH = 14
 
 
+def now_jst():
+    return datetime.utcnow() + timedelta(hours=9)
+
+
 def user_key(user_id):
     return hashlib.md5(user_id.encode()).hexdigest()
+
+
+def get_sheet():
+    if not SPREADSHEET_ID or not GOOGLE_CREDENTIALS:
+        return None
+
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive",
+    ]
+
+    credentials_info = json.loads(GOOGLE_CREDENTIALS)
+    credentials = Credentials.from_service_account_info(credentials_info, scopes=scopes)
+    client = gspread.authorize(credentials)
+    spreadsheet = client.open_by_key(SPREADSHEET_ID)
+    return spreadsheet.sheet1
+
+
+def get_display_name(user_id):
+    try:
+        profile = line_bot_api.get_profile(user_id)
+        return profile.display_name
+    except Exception:
+        return ""
+
+
+def get_filter_label(filter_type):
+    if filter_type == "emo":
+        return "エモい"
+    if filter_type == "bright":
+        return "盛れる"
+    return "いい感じ"
+
+
+def get_aspect_ratio_label(width, height):
+    if not width or not height:
+        return ""
+
+    ratio = width / height
+
+    if abs(ratio - 1.0) < 0.05:
+        return "1:1"
+    if abs(ratio - 0.8) < 0.05:
+        return "4:5"
+    if abs(ratio - 0.75) < 0.05:
+        return "3:4"
+    if abs(ratio - 1.333) < 0.05:
+        return "4:3"
+    if abs(ratio - 1.777) < 0.08:
+        return "16:9"
+
+    return f"{width}:{height}"
+
+
+def log_generation(user_id, processing_time_sec, output_urls):
+    try:
+        sheet = get_sheet()
+        if sheet is None:
+            print("Google Sheets logging skipped: env not set")
+            return
+
+        image_info = user_image_info.get(user_id, {})
+        width = image_info.get("width", "")
+        height = image_info.get("height", "")
+
+        text = user_texts.get(user_id, "")
+        date_text = user_dates.get(user_id, "")
+        filter_type = user_filters.get(user_id, "good")
+
+        user_generation_counts[user_id] = user_generation_counts.get(user_id, 0) + 1
+
+        row = [
+            now_jst().strftime("%Y-%m-%d %H:%M:%S"),
+            user_id,
+            get_display_name(user_id),
+            get_filter_label(filter_type),
+            text,
+            len(text),
+            "TRUE" if date_text else "FALSE",
+            date_text,
+            user_retry_types.get(user_id, "initial"),
+            width,
+            height,
+            get_aspect_ratio_label(width, height),
+            round(processing_time_sec, 2),
+            user_generation_counts[user_id],
+            user_sessions.get(user_id, ""),
+            "",
+            ",".join(output_urls),
+        ]
+
+        sheet.append_row(row, value_input_option="USER_ENTERED")
+        print("Logged generation:", row)
+
+    except Exception as e:
+        print("Google Sheets logging error:", e)
 
 
 def load_font(size):
@@ -85,108 +197,75 @@ def add_light_vignette(img, alpha=28):
 
 
 def apply_photo_filter(img, filter_type, variant=0):
-    # variant=0 / 1 で違いが分かるように強めに差分を作る
-
     if filter_type == "emo":
         if variant == 0:
-            # エモい：あたたかめ
             img = ImageEnhance.Color(img).enhance(0.68)
             img = ImageEnhance.Contrast(img).enhance(1.10)
             img = ImageEnhance.Brightness(img).enhance(0.96)
-
             warm = Image.new("RGB", img.size, (255, 224, 188))
             img = Image.blend(img, warm, 0.22)
-
             sepia = Image.new("RGB", img.size, (125, 85, 52))
             img = Image.blend(img, sepia, 0.04)
-
             noise = Image.effect_noise(img.size, 12).convert("RGB")
             img = Image.blend(img, noise, 0.035)
-
             img = add_light_vignette(img, alpha=30)
             img = img.filter(ImageFilter.GaussianBlur(0.08))
-
         else:
-            # エモい：暗めフィルム
             img = ImageEnhance.Color(img).enhance(0.58)
             img = ImageEnhance.Contrast(img).enhance(1.16)
             img = ImageEnhance.Brightness(img).enhance(0.88)
-
             warm = Image.new("RGB", img.size, (245, 214, 178))
             img = Image.blend(img, warm, 0.26)
-
             sepia = Image.new("RGB", img.size, (105, 70, 45))
             img = Image.blend(img, sepia, 0.07)
-
             noise = Image.effect_noise(img.size, 16).convert("RGB")
             img = Image.blend(img, noise, 0.052)
-
             img = add_light_vignette(img, alpha=44)
             img = img.filter(ImageFilter.GaussianBlur(0.12))
 
     elif filter_type == "bright":
         if variant == 0:
-            # 盛れる：明るめ
             img = ImageEnhance.Color(img).enhance(1.08)
             img = ImageEnhance.Contrast(img).enhance(1.14)
             img = ImageEnhance.Brightness(img).enhance(1.16)
-
             cool = Image.new("RGB", img.size, (236, 244, 255))
             img = Image.blend(img, cool, 0.05)
-
             noise = Image.effect_noise(img.size, 5).convert("RGB")
             img = Image.blend(img, noise, 0.01)
-
             img = add_light_vignette(img, alpha=12)
-
         else:
-            # 盛れる：白っぽめ
             img = ImageEnhance.Color(img).enhance(0.95)
             img = ImageEnhance.Contrast(img).enhance(1.07)
             img = ImageEnhance.Brightness(img).enhance(1.24)
-
             white = Image.new("RGB", img.size, (255, 250, 240))
             img = Image.blend(img, white, 0.13)
-
             cool = Image.new("RGB", img.size, (238, 246, 255))
             img = Image.blend(img, cool, 0.08)
-
             noise = Image.effect_noise(img.size, 4).convert("RGB")
             img = Image.blend(img, noise, 0.008)
-
             img = add_light_vignette(img, alpha=8)
 
     else:
         if variant == 0:
-            # いい感じ：自然
             img = ImageEnhance.Color(img).enhance(0.82)
             img = ImageEnhance.Contrast(img).enhance(1.07)
             img = ImageEnhance.Brightness(img).enhance(1.03)
-
             warm = Image.new("RGB", img.size, (255, 234, 202))
             img = Image.blend(img, warm, 0.11)
-
             sepia = Image.new("RGB", img.size, (120, 82, 50))
             img = Image.blend(img, sepia, 0.018)
-
             noise = Image.effect_noise(img.size, 7).convert("RGB")
             img = Image.blend(img, noise, 0.022)
-
             img = add_light_vignette(img, alpha=20)
             img = img.filter(ImageFilter.GaussianBlur(0.05))
-
         else:
-            # いい感じ：淡め
             img = ImageEnhance.Color(img).enhance(0.72)
             img = ImageEnhance.Contrast(img).enhance(0.96)
             img = ImageEnhance.Brightness(img).enhance(1.09)
-
             cream = Image.new("RGB", img.size, (255, 242, 218))
             img = Image.blend(img, cream, 0.17)
-
             noise = Image.effect_noise(img.size, 8).convert("RGB")
             img = Image.blend(img, noise, 0.025)
-
             img = add_light_vignette(img, alpha=16)
             img = img.filter(ImageFilter.GaussianBlur(0.07))
 
@@ -379,7 +458,7 @@ def make_cheki(user_id, variant=0):
 
 
 def date_quick_reply():
-    today = (datetime.utcnow() + timedelta(hours=9)).strftime("%Y.%m.%d")
+    today = now_jst().strftime("%Y.%m.%d")
     return QuickReply(items=[
         QuickReplyButton(action=MessageAction(label="今日", text=today)),
         QuickReplyButton(action=MessageAction(label="なし", text="なし")),
@@ -427,9 +506,14 @@ def callback():
 
 
 def generate_and_send(user_id):
+    start_time = time.time()
+
     output_keys = []
+    output_urls = []
+
     for i in range(2):
-        output_keys.append(make_cheki(user_id, variant=i))
+        output_key = make_cheki(user_id, variant=i)
+        output_keys.append(output_key)
 
     line_bot_api.push_message(
         user_id,
@@ -438,6 +522,8 @@ def generate_and_send(user_id):
 
     for output_key in output_keys:
         image_url = f"{BASE_URL}/output/{output_key}.jpg?{int(time.time())}"
+        output_urls.append(image_url)
+
         line_bot_api.push_message(
             user_id,
             ImageSendMessage(
@@ -454,6 +540,9 @@ def generate_and_send(user_id):
         )
     )
 
+    processing_time_sec = time.time() - start_time
+    log_generation(user_id, processing_time_sec, output_urls)
+
 
 @handler.add(MessageEvent, message=ImageMessage)
 def handle_image(event):
@@ -466,6 +555,20 @@ def handle_image(event):
         for chunk in content.iter_content():
             f.write(chunk)
 
+    try:
+        img = Image.open(f"/tmp/input_{key}.jpg")
+        user_image_info[user_id] = {
+            "width": img.size[0],
+            "height": img.size[1],
+        }
+    except Exception:
+        user_image_info[user_id] = {
+            "width": "",
+            "height": "",
+        }
+
+    user_sessions[user_id] = str(uuid.uuid4())
+    user_retry_types[user_id] = "initial"
     user_states[user_id] = "filter"
 
     line_bot_api.reply_message(
@@ -485,6 +588,7 @@ def handle_text(event):
     if msg == "やり直し":
         user_states[user_id] = None
         user_filters[user_id] = "good"
+        user_retry_types[user_id] = "やり直し"
         line_bot_api.reply_message(
             event.reply_token,
             TextSendMessage(text="もう一度画像を送ってね📸")
@@ -493,6 +597,7 @@ def handle_text(event):
 
     if msg == "雰囲気だけ変える":
         user_states[user_id] = "filter_change"
+        user_retry_types[user_id] = "雰囲気変更"
         line_bot_api.reply_message(
             event.reply_token,
             TextSendMessage(text="どの雰囲気に変える？👇", quick_reply=filter_quick_reply())
@@ -501,6 +606,7 @@ def handle_text(event):
 
     if msg == "文字変更":
         user_states[user_id] = "text"
+        user_retry_types[user_id] = "文字変更"
         line_bot_api.reply_message(
             event.reply_token,
             TextSendMessage(text="新しい文字を送って！")
@@ -509,6 +615,7 @@ def handle_text(event):
 
     if msg == "日付変更":
         user_states[user_id] = "date"
+        user_retry_types[user_id] = "日付変更"
         line_bot_api.reply_message(
             event.reply_token,
             TextSendMessage(text="日付を送ってね📅 手入力でもOK。不要なら「なし」", quick_reply=date_quick_reply())
@@ -576,6 +683,7 @@ def handle_text(event):
         generate_and_send(user_id)
 
         user_states[user_id] = None
+        user_retry_types[user_id] = "initial"
         return
 
     line_bot_api.reply_message(
