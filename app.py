@@ -449,7 +449,7 @@ def generate_and_send(user_id):
     line_bot_api.push_message(
         user_id,
         TextSendMessage(
-            text="いい感じにできたね📸✨\nSNSでシェアしてみて👇\n#オシフィルム\n\nもう一回つくる？",
+            text="いい感じにできたね📸✨\nSNSでシェアしてみて👇\n#推しフィルム\n\nもう一回つくる？",
             quick_reply=after_generate_quick_reply()
         )
     )
