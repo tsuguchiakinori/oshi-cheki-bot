@@ -115,10 +115,8 @@ def get_display_name(user_id):
 def get_filter_label(filter_type):
     if filter_type == "emo":
         return "エモい"
-
     if filter_type == "bright":
         return "盛れる"
-
     return "いい感じ"
 
 
@@ -130,16 +128,12 @@ def get_aspect_ratio_label(width, height):
 
     if abs(ratio - 1.0) < 0.05:
         return "1:1"
-
     if abs(ratio - 0.8) < 0.05:
         return "4:5"
-
     if abs(ratio - 0.75) < 0.05:
         return "3:4"
-
     if abs(ratio - 1.333) < 0.05:
         return "4:3"
-
     if abs(ratio - 1.777) < 0.08:
         return "16:9"
 
@@ -155,42 +149,30 @@ def log_generation(user_id, processing_time_sec, output_urls):
             return
 
         created_at = now_jst().strftime("%Y-%m-%d %H:%M:%S")
-
         stats = get_existing_user_stats(sheet, user_id)
 
         previous_count = stats["previous_count"]
-
         first_visit = "TRUE" if previous_count == 0 else "FALSE"
-
         user_total_generations = previous_count + 1
 
-        first_created_at = (
-            stats["first_created_at"]
-            if stats["first_created_at"]
-            else created_at
-        )
-
+        first_created_at = stats["first_created_at"] if stats["first_created_at"] else created_at
         last_created_at = created_at
 
         image_info = user_image_info.get(user_id, {})
-
         width = image_info.get("width", "")
         height = image_info.get("height", "")
 
         text = user_texts.get(user_id, "")
         date_text = user_dates.get(user_id, "")
         filter_type = user_filters.get(user_id, "good")
-
         session_id = user_sessions.get(user_id, "")
 
         user_session_generation_counts[user_id] = (
             user_session_generation_counts.get(user_id, 0) + 1
         )
-
         generation_count = user_session_generation_counts.get(user_id, 1)
 
         retry_count = user_retry_counts.get(user_id, 0)
-
         retry_type = user_retry_types.get(user_id, "initial")
 
         row = [
@@ -219,7 +201,6 @@ def log_generation(user_id, processing_time_sec, output_urls):
         ]
 
         sheet.append_row(row, value_input_option="USER_ENTERED")
-
         print("Logged generation:", row)
 
     except Exception as e:
@@ -238,7 +219,6 @@ def split_text(text):
         return [text]
 
     mid = len(text) // 2
-
     return [text[:mid], text[mid:]]
 
 
@@ -247,7 +227,6 @@ def fit_text(draw, text, max_width, start_size=78, min_size=36):
 
     while size >= min_size:
         font = load_font(size)
-
         bbox = draw.textbbox((0, 0), text, font=font)
 
         if (bbox[2] - bbox[0]) <= max_width:
@@ -260,15 +239,12 @@ def fit_text(draw, text, max_width, start_size=78, min_size=36):
 
 def get_text_width(draw, text, font):
     bbox = draw.textbbox((0, 0), text, font=font)
-
     return bbox[2] - bbox[0]
 
 
 def add_light_vignette(img, alpha=28):
     overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
-
     d = ImageDraw.Draw(overlay)
-
     w, h = img.size
 
     d.rectangle((0, 0, w, 55), fill=(40, 30, 20, alpha))
@@ -277,14 +253,11 @@ def add_light_vignette(img, alpha=28):
     d.rectangle((w - 55, 0, w, h), fill=(40, 30, 20, alpha))
 
     overlay = overlay.filter(ImageFilter.GaussianBlur(42))
-
     return Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
 
 
 def apply_photo_filter(img, filter_type, variant=0):
-
     if filter_type == "emo":
-
         if variant == 0:
             img = ImageEnhance.Color(img).enhance(0.68)
             img = ImageEnhance.Contrast(img).enhance(1.10)
@@ -320,7 +293,6 @@ def apply_photo_filter(img, filter_type, variant=0):
             img = img.filter(ImageFilter.GaussianBlur(0.12))
 
     elif filter_type == "bright":
-
         if variant == 0:
             img = ImageEnhance.Color(img).enhance(1.08)
             img = ImageEnhance.Contrast(img).enhance(1.14)
@@ -351,7 +323,6 @@ def apply_photo_filter(img, filter_type, variant=0):
             img = add_light_vignette(img, alpha=8)
 
     else:
-
         if variant == 0:
             img = ImageEnhance.Color(img).enhance(0.82)
             img = ImageEnhance.Contrast(img).enhance(1.07)
@@ -400,9 +371,7 @@ def make_old_paper_frame(width, height):
 
 def round_corners(img, radius=18):
     img = img.convert("RGBA")
-
     mask = Image.new("L", img.size, 0)
-
     draw = ImageDraw.Draw(mask)
 
     draw.rounded_rectangle(
@@ -412,19 +381,16 @@ def round_corners(img, radius=18):
     )
 
     img.putalpha(mask)
-
     return img
 
 
 def make_cheki(user_id, variant=0):
     key = user_key(user_id)
-
     filter_type = user_filters.get(user_id, "good")
 
     img = Image.open(f"/tmp/input_{key}.jpg").convert("RGB")
 
     w, h = img.size
-
     size = min(w, h)
 
     img = img.crop((
@@ -435,14 +401,61 @@ def make_cheki(user_id, variant=0):
     ))
 
     img = img.resize((900, 900))
-
     img = apply_photo_filter(img, filter_type, variant=variant)
-
     img = round_corners(img, radius=18)
 
     frame = make_old_paper_frame(1000, 1300)
-
     frame.paste(img, (50, 80), img)
+
+    draw = ImageDraw.Draw(frame)
+
+    text = user_texts.get(user_id, "")
+    date_text = user_dates.get(user_id, "")
+
+    lines = split_text(text) if text else [""]
+
+    longest_line = max(lines, key=len) if lines else ""
+
+    title_font = fit_text(
+        draw,
+        longest_line,
+        max_width=760,
+        start_size=78,
+        min_size=36
+    )
+
+    line_height = 72
+
+    if len(lines) == 1:
+        start_y = 1040
+    else:
+        start_y = 1010
+
+    for i, line in enumerate(lines):
+        text_width = get_text_width(draw, line, title_font)
+
+        draw.text(
+            ((1000 - text_width) / 2, start_y + i * line_height),
+            line,
+            font=title_font,
+            fill=(35, 28, 24),
+        )
+
+    if date_text:
+        date_font = load_font(42)
+        date_width = get_text_width(draw, date_text, date_font)
+
+        if len(lines) == 1:
+            date_y = 1140
+        else:
+            date_y = 1200
+
+        draw.text(
+            ((1000 - date_width) / 2, date_y),
+            date_text,
+            font=date_font,
+            fill=(120, 110, 100),
+        )
 
     output_key = f"{key}_{variant}"
 
@@ -490,7 +503,6 @@ def output(key):
 @app.route("/callback", methods=["POST"])
 def callback():
     signature = request.headers.get("X-Line-Signature", "")
-
     body = request.get_data(as_text=True)
 
     try:
@@ -510,7 +522,6 @@ def generate_and_send(user_id):
 
     for i in range(2):
         output_key = make_cheki(user_id, variant=i)
-
         output_keys.append(output_key)
 
     line_bot_api.push_message(
@@ -522,7 +533,6 @@ def generate_and_send(user_id):
 
     for output_key in output_keys:
         image_url = f"{BASE_URL}/output/{output_key}.jpg?{int(time.time())}"
-
         output_urls.append(image_url)
 
         line_bot_api.push_message(
@@ -542,14 +552,12 @@ def generate_and_send(user_id):
     )
 
     processing_time_sec = time.time() - start_time
-
     log_generation(user_id, processing_time_sec, output_urls)
 
 
 @handler.add(MessageEvent, message=ImageMessage)
 def handle_image(event):
     user_id = event.source.user_id
-
     key = user_key(user_id)
 
     content = line_bot_api.get_message_content(event.message.id)
@@ -573,13 +581,9 @@ def handle_image(event):
         }
 
     user_sessions[user_id] = str(uuid.uuid4())
-
     user_retry_types[user_id] = "initial"
-
     user_retry_counts[user_id] = 0
-
     user_session_generation_counts[user_id] = 0
-
     user_states[user_id] = "filter"
 
     line_bot_api.reply_message(
@@ -594,7 +598,6 @@ def handle_image(event):
 @handler.add(MessageEvent, message=TextMessage)
 def handle_text(event):
     user_id = event.source.user_id
-
     msg = event.message.text.strip()
 
     if msg == "やり直し":
@@ -602,10 +605,7 @@ def handle_text(event):
         user_filters[user_id] = "good"
 
         user_retry_types[user_id] = "やり直し"
-
-        user_retry_counts[user_id] = (
-            user_retry_counts.get(user_id, 0) + 1
-        )
+        user_retry_counts[user_id] = user_retry_counts.get(user_id, 0) + 1
 
         line_bot_api.reply_message(
             event.reply_token,
@@ -618,10 +618,7 @@ def handle_text(event):
         user_states[user_id] = "filter_change"
 
         user_retry_types[user_id] = "雰囲気変更"
-
-        user_retry_counts[user_id] = (
-            user_retry_counts.get(user_id, 0) + 1
-        )
+        user_retry_counts[user_id] = user_retry_counts.get(user_id, 0) + 1
 
         line_bot_api.reply_message(
             event.reply_token,
@@ -637,10 +634,7 @@ def handle_text(event):
         user_states[user_id] = "text"
 
         user_retry_types[user_id] = "文字変更"
-
-        user_retry_counts[user_id] = (
-            user_retry_counts.get(user_id, 0) + 1
-        )
+        user_retry_counts[user_id] = user_retry_counts.get(user_id, 0) + 1
 
         line_bot_api.reply_message(
             event.reply_token,
@@ -653,10 +647,7 @@ def handle_text(event):
         user_states[user_id] = "date"
 
         user_retry_types[user_id] = "日付変更"
-
-        user_retry_counts[user_id] = (
-            user_retry_counts.get(user_id, 0) + 1
-        )
+        user_retry_counts[user_id] = user_retry_counts.get(user_id, 0) + 1
 
         line_bot_api.reply_message(
             event.reply_token,
@@ -717,7 +708,6 @@ def handle_text(event):
             return
 
         user_texts[user_id] = msg
-
         user_states[user_id] = "date"
 
         line_bot_api.reply_message(
@@ -746,7 +736,6 @@ def handle_text(event):
         generate_and_send(user_id)
 
         user_states[user_id] = None
-
         user_retry_types[user_id] = "initial"
 
         return
