@@ -48,6 +48,23 @@ user_session_generation_counts = {}
 
 MAX_TEXT_LENGTH = 14
 
+SESSION_SHEET_NAME = "user_sessions"
+
+SESSION_HEADERS = [
+    "user_id",
+    "state",
+    "input_text",
+    "date_text",
+    "filter_type",
+    "session_id",
+    "image_width",
+    "image_height",
+    "retry_type",
+    "retry_count",
+    "session_generation_count",
+    "updated_at",
+]
+
 
 def now_jst():
     return datetime.utcnow() + timedelta(hours=9)
@@ -57,7 +74,7 @@ def user_key(user_id):
     return hashlib.md5(user_id.encode()).hexdigest()
 
 
-def get_sheet():
+def get_spreadsheet():
     if not SPREADSHEET_ID or not GOOGLE_CREDENTIALS:
         return None
 
@@ -69,8 +86,123 @@ def get_sheet():
     credentials_info = json.loads(GOOGLE_CREDENTIALS)
     credentials = Credentials.from_service_account_info(credentials_info, scopes=scopes)
     client = gspread.authorize(credentials)
-    spreadsheet = client.open_by_key(SPREADSHEET_ID)
+    return client.open_by_key(SPREADSHEET_ID)
+
+
+def get_sheet():
+    spreadsheet = get_spreadsheet()
+    if spreadsheet is None:
+        return None
     return spreadsheet.sheet1
+
+
+def get_session_sheet():
+    spreadsheet = get_spreadsheet()
+    if spreadsheet is None:
+        return None
+
+    try:
+        worksheet = spreadsheet.worksheet(SESSION_SHEET_NAME)
+    except Exception:
+        worksheet = spreadsheet.add_worksheet(
+            title=SESSION_SHEET_NAME,
+            rows=1000,
+            cols=len(SESSION_HEADERS),
+        )
+        worksheet.append_row(SESSION_HEADERS)
+        return worksheet
+
+    values = worksheet.get_all_values()
+
+    if not values:
+        worksheet.append_row(SESSION_HEADERS)
+    elif values[0] != SESSION_HEADERS:
+        worksheet.clear()
+        worksheet.append_row(SESSION_HEADERS)
+
+    return worksheet
+
+
+def save_user_session_state(user_id):
+    try:
+        sheet = get_session_sheet()
+        if sheet is None:
+            return
+
+        row_values = [
+            user_id,
+            user_states.get(user_id, "") or "",
+            user_texts.get(user_id, ""),
+            user_dates.get(user_id, ""),
+            user_filters.get(user_id, "good"),
+            user_sessions.get(user_id, ""),
+            user_image_info.get(user_id, {}).get("width", ""),
+            user_image_info.get(user_id, {}).get("height", ""),
+            user_retry_types.get(user_id, "initial"),
+            user_retry_counts.get(user_id, 0),
+            user_session_generation_counts.get(user_id, 0),
+            now_jst().strftime("%Y-%m-%d %H:%M:%S"),
+        ]
+
+        records = sheet.get_all_records()
+        target_row = None
+
+        for i, record in enumerate(records, start=2):
+            if str(record.get("user_id", "")) == user_id:
+                target_row = i
+                break
+
+        if target_row:
+            sheet.update(f"A{target_row}:L{target_row}", [row_values])
+        else:
+            sheet.append_row(row_values, value_input_option="USER_ENTERED")
+
+    except Exception as e:
+        print("save_user_session_state error:", e)
+
+
+def load_user_session_state(user_id):
+    try:
+        sheet = get_session_sheet()
+        if sheet is None:
+            return False
+
+        records = sheet.get_all_records()
+
+        for record in records:
+            if str(record.get("user_id", "")) == user_id:
+                user_states[user_id] = record.get("state", "") or None
+                user_texts[user_id] = record.get("input_text", "")
+                user_dates[user_id] = record.get("date_text", "")
+                user_filters[user_id] = record.get("filter_type", "good")
+                user_sessions[user_id] = record.get("session_id", "")
+
+                user_image_info[user_id] = {
+                    "width": record.get("image_width", ""),
+                    "height": record.get("image_height", ""),
+                }
+
+                user_retry_types[user_id] = record.get("retry_type", "initial")
+
+                try:
+                    user_retry_counts[user_id] = int(record.get("retry_count", 0) or 0)
+                except Exception:
+                    user_retry_counts[user_id] = 0
+
+                try:
+                    user_session_generation_counts[user_id] = int(
+                        record.get("session_generation_count", 0) or 0
+                    )
+                except Exception:
+                    user_session_generation_counts[user_id] = 0
+
+                return True
+
+        return False
+
+    except Exception as e:
+        print("load_user_session_state error:", e)
+        return False
 
 
 def get_existing_user_stats(sheet, user_id):
@@ -85,14 +217,16 @@ def get_existing_user_stats(sheet, user_id):
                 "last_created_at": "",
             }
 
-        created_list = [r.get("created_at", "") for r in user_records if r.get("created_at", "")]
-        first_created_at = created_list[0] if created_list else ""
-        last_created_at = created_list[-1] if created_list else ""
+        created_list = [
+            r.get("created_at", "")
+            for r in user_records
+            if r.get("created_at", "")
+        ]
 
         return {
             "previous_count": len(user_records),
-            "first_created_at": first_created_at,
-            "last_created_at": last_created_at,
+            "first_created_at": created_list[0] if created_list else "",
+            "last_created_at": created_list[-1] if created_list else "",
         }
 
     except Exception as e:
@@ -122,6 +256,15 @@ def get_filter_label(filter_type):
 
 def get_aspect_ratio_label(width, height):
     if not width or not height:
+        return ""
+
+    try:
+        width = int(width)
+        height = int(height)
+    except Exception:
+        return ""
+
+    if width == 0 or height == 0:
         return ""
 
     ratio = width / height
@@ -202,6 +345,8 @@ def log_generation(user_id, processing_time_sec, output_urls):
 
         sheet.append_row(row, value_input_option="USER_ENTERED")
         print("Logged generation:", row)
+
+        save_user_session_state(user_id)
 
     except Exception as e:
         print("Google Sheets logging error:", e)
@@ -386,9 +531,14 @@ def round_corners(img, radius=18):
 
 def make_cheki(user_id, variant=0):
     key = user_key(user_id)
+    input_path = f"/tmp/input_{key}.jpg"
+
+    if not os.path.exists(input_path):
+        raise FileNotFoundError("input image not found")
+
     filter_type = user_filters.get(user_id, "good")
 
-    img = Image.open(f"/tmp/input_{key}.jpg").convert("RGB")
+    img = Image.open(input_path).convert("RGB")
 
     w, h = img.size
     size = min(w, h)
@@ -413,7 +563,6 @@ def make_cheki(user_id, variant=0):
     date_text = user_dates.get(user_id, "")
 
     lines = split_text(text) if text else [""]
-
     longest_line = max(lines, key=len) if lines else ""
 
     title_font = fit_text(
@@ -458,7 +607,6 @@ def make_cheki(user_id, variant=0):
         )
 
     output_key = f"{key}_{variant}"
-
     frame.save(f"/tmp/output_{output_key}.jpg", quality=92)
 
     return output_key
@@ -517,42 +665,67 @@ def callback():
 def generate_and_send(user_id):
     start_time = time.time()
 
-    output_keys = []
-    output_urls = []
+    try:
+        output_keys = []
+        output_urls = []
 
-    for i in range(2):
-        output_key = make_cheki(user_id, variant=i)
-        output_keys.append(output_key)
-
-    line_bot_api.push_message(
-        user_id,
-        TextSendMessage(
-            text="2パターン作ったよ📸\n好きな方を保存してね👇"
-        )
-    )
-
-    for output_key in output_keys:
-        image_url = f"{BASE_URL}/output/{output_key}.jpg?{int(time.time())}"
-        output_urls.append(image_url)
+        for i in range(2):
+            output_key = make_cheki(user_id, variant=i)
+            output_keys.append(output_key)
 
         line_bot_api.push_message(
             user_id,
-            ImageSendMessage(
-                original_content_url=image_url,
-                preview_image_url=image_url
+            TextSendMessage(
+                text="2パターン作ったよ📸\n好きな方を保存してね👇"
             )
         )
 
-    line_bot_api.push_message(
-        user_id,
-        TextSendMessage(
-            text="いい感じにできたね📸✨\nSNSでシェアしてみて👇\n#推しフィルム\n\nもう一回つくる？",
-            quick_reply=after_generate_quick_reply()
-        )
-    )
+        for output_key in output_keys:
+            image_url = f"{BASE_URL}/output/{output_key}.jpg?{int(time.time())}"
+            output_urls.append(image_url)
 
-    processing_time_sec = time.time() - start_time
-    log_generation(user_id, processing_time_sec, output_urls)
+            line_bot_api.push_message(
+                user_id,
+                ImageSendMessage(
+                    original_content_url=image_url,
+                    preview_image_url=image_url
+                )
+            )
+
+        line_bot_api.push_message(
+            user_id,
+            TextSendMessage(
+                text="いい感じにできたね📸✨\nSNSでシェアしてみて👇\n#推しフィルム\n\nもう一回つくる？",
+                quick_reply=after_generate_quick_reply()
+            )
+        )
+
+        processing_time_sec = time.time() - start_time
+        log_generation(user_id, processing_time_sec, output_urls)
+
+        user_states[user_id] = None
+        save_user_session_state(user_id)
+
+    except FileNotFoundError:
+        user_states[user_id] = None
+        save_user_session_state(user_id)
+
+        line_bot_api.push_message(
+            user_id,
+            TextSendMessage(
+                text="時間が経って画像データが消えちゃったみたい🙏\nもう一度画像を送ってね📸"
+            )
+        )
+
+    except Exception as e:
+        print("generate_and_send error:", e)
+
+        line_bot_api.push_message(
+            user_id,
+            TextSendMessage(
+                text="ごめん、うまく作れなかったみたい🙏\nもう一度画像を送って試してみて📸"
+            )
+        )
 
 
 @handler.add(MessageEvent, message=ImageMessage)
@@ -581,10 +754,15 @@ def handle_image(event):
         }
 
     user_sessions[user_id] = str(uuid.uuid4())
+    user_texts[user_id] = ""
+    user_dates[user_id] = ""
+    user_filters[user_id] = "good"
     user_retry_types[user_id] = "initial"
     user_retry_counts[user_id] = 0
     user_session_generation_counts[user_id] = 0
     user_states[user_id] = "filter"
+
+    save_user_session_state(user_id)
 
     line_bot_api.reply_message(
         event.reply_token,
@@ -600,12 +778,18 @@ def handle_text(event):
     user_id = event.source.user_id
     msg = event.message.text.strip()
 
+    load_user_session_state(user_id)
+
     if msg == "やり直し":
         user_states[user_id] = None
         user_filters[user_id] = "good"
+        user_texts[user_id] = ""
+        user_dates[user_id] = ""
 
         user_retry_types[user_id] = "やり直し"
         user_retry_counts[user_id] = user_retry_counts.get(user_id, 0) + 1
+
+        save_user_session_state(user_id)
 
         line_bot_api.reply_message(
             event.reply_token,
@@ -616,9 +800,10 @@ def handle_text(event):
 
     if msg == "雰囲気だけ変える":
         user_states[user_id] = "filter_change"
-
         user_retry_types[user_id] = "雰囲気変更"
         user_retry_counts[user_id] = user_retry_counts.get(user_id, 0) + 1
+
+        save_user_session_state(user_id)
 
         line_bot_api.reply_message(
             event.reply_token,
@@ -632,9 +817,10 @@ def handle_text(event):
 
     if msg == "文字変更":
         user_states[user_id] = "text"
-
         user_retry_types[user_id] = "文字変更"
         user_retry_counts[user_id] = user_retry_counts.get(user_id, 0) + 1
+
+        save_user_session_state(user_id)
 
         line_bot_api.reply_message(
             event.reply_token,
@@ -645,9 +831,10 @@ def handle_text(event):
 
     if msg == "日付変更":
         user_states[user_id] = "date"
-
         user_retry_types[user_id] = "日付変更"
         user_retry_counts[user_id] = user_retry_counts.get(user_id, 0) + 1
+
+        save_user_session_state(user_id)
 
         line_bot_api.reply_message(
             event.reply_token,
@@ -673,6 +860,8 @@ def handle_text(event):
             if user_states.get(user_id) == "filter_change":
                 user_states[user_id] = None
 
+                save_user_session_state(user_id)
+
                 line_bot_api.reply_message(
                     event.reply_token,
                     TextSendMessage(
@@ -685,6 +874,7 @@ def handle_text(event):
                 return
 
             user_states[user_id] = "text"
+            save_user_session_state(user_id)
 
             line_bot_api.reply_message(
                 event.reply_token,
@@ -694,6 +884,16 @@ def handle_text(event):
             )
 
             return
+
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(
+                text="ボタンから雰囲気を選んでね👇",
+                quick_reply=filter_quick_reply()
+            )
+        )
+
+        return
 
     if user_states.get(user_id) == "text":
 
@@ -709,6 +909,8 @@ def handle_text(event):
 
         user_texts[user_id] = msg
         user_states[user_id] = "date"
+
+        save_user_session_state(user_id)
 
         line_bot_api.reply_message(
             event.reply_token,
@@ -728,15 +930,14 @@ def handle_text(event):
             else msg
         )
 
+        save_user_session_state(user_id)
+
         line_bot_api.reply_message(
             event.reply_token,
             TextSendMessage(text="2パターン現像中…📸")
         )
 
         generate_and_send(user_id)
-
-        user_states[user_id] = None
-        user_retry_types[user_id] = "initial"
 
         return
 
