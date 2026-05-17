@@ -1,6 +1,5 @@
 import os
 import time
-import random
 import hashlib
 import json
 import uuid
@@ -345,8 +344,6 @@ def log_generation(user_id, processing_time_sec, output_urls):
 
         sheet.append_row(row, value_input_option="USER_ENTERED")
         print("Logged generation:", row)
-
-        save_user_session_state(user_id)
 
     except Exception as e:
         print("Google Sheets logging error:", e)
@@ -733,44 +730,58 @@ def handle_image(event):
     user_id = event.source.user_id
     key = user_key(user_id)
 
-    content = line_bot_api.get_message_content(event.message.id)
-
-    with open(f"/tmp/input_{key}.jpg", "wb") as f:
-        for chunk in content.iter_content():
-            f.write(chunk)
-
     try:
-        img = Image.open(f"/tmp/input_{key}.jpg")
+        content = line_bot_api.get_message_content(event.message.id)
 
-        user_image_info[user_id] = {
-            "width": img.size[0],
-            "height": img.size[1],
-        }
+        with open(f"/tmp/input_{key}.jpg", "wb") as f:
+            for chunk in content.iter_content():
+                f.write(chunk)
 
-    except Exception:
-        user_image_info[user_id] = {
-            "width": "",
-            "height": "",
-        }
+        try:
+            img = Image.open(f"/tmp/input_{key}.jpg")
 
-    user_sessions[user_id] = str(uuid.uuid4())
-    user_texts[user_id] = ""
-    user_dates[user_id] = ""
-    user_filters[user_id] = "good"
-    user_retry_types[user_id] = "initial"
-    user_retry_counts[user_id] = 0
-    user_session_generation_counts[user_id] = 0
-    user_states[user_id] = "filter"
+            user_image_info[user_id] = {
+                "width": img.size[0],
+                "height": img.size[1],
+            }
 
-    save_user_session_state(user_id)
+        except Exception:
+            user_image_info[user_id] = {
+                "width": "",
+                "height": "",
+            }
 
-    line_bot_api.reply_message(
-        event.reply_token,
-        TextSendMessage(
-            text="どの雰囲気にする？👇",
-            quick_reply=filter_quick_reply()
+        user_sessions[user_id] = str(uuid.uuid4())
+        user_texts[user_id] = ""
+        user_dates[user_id] = ""
+        user_filters[user_id] = "good"
+        user_retry_types[user_id] = "initial"
+        user_retry_counts[user_id] = 0
+        user_session_generation_counts[user_id] = 0
+        user_states[user_id] = "filter"
+
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(
+                text="どの雰囲気にする？👇",
+                quick_reply=filter_quick_reply()
+            )
         )
-    )
+
+        save_user_session_state(user_id)
+
+    except Exception as e:
+        print("handle_image error:", e)
+
+        try:
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(
+                    text="画像の受け取りに失敗しちゃったみたい🙏\nもう一度画像を送ってね📸"
+                )
+            )
+        except Exception as reply_error:
+            print("handle_image reply error:", reply_error)
 
 
 @handler.add(MessageEvent, message=TextMessage)
@@ -789,21 +800,18 @@ def handle_text(event):
         user_retry_types[user_id] = "やり直し"
         user_retry_counts[user_id] = user_retry_counts.get(user_id, 0) + 1
 
-        save_user_session_state(user_id)
-
         line_bot_api.reply_message(
             event.reply_token,
             TextSendMessage(text="もう一度画像を送ってね📸")
         )
 
+        save_user_session_state(user_id)
         return
 
     if msg == "雰囲気だけ変える":
         user_states[user_id] = "filter_change"
         user_retry_types[user_id] = "雰囲気変更"
         user_retry_counts[user_id] = user_retry_counts.get(user_id, 0) + 1
-
-        save_user_session_state(user_id)
 
         line_bot_api.reply_message(
             event.reply_token,
@@ -813,6 +821,7 @@ def handle_text(event):
             )
         )
 
+        save_user_session_state(user_id)
         return
 
     if msg == "文字変更":
@@ -820,21 +829,18 @@ def handle_text(event):
         user_retry_types[user_id] = "文字変更"
         user_retry_counts[user_id] = user_retry_counts.get(user_id, 0) + 1
 
-        save_user_session_state(user_id)
-
         line_bot_api.reply_message(
             event.reply_token,
             TextSendMessage(text="新しい文字を送って！")
         )
 
+        save_user_session_state(user_id)
         return
 
     if msg == "日付変更":
         user_states[user_id] = "date"
         user_retry_types[user_id] = "日付変更"
         user_retry_counts[user_id] = user_retry_counts.get(user_id, 0) + 1
-
-        save_user_session_state(user_id)
 
         line_bot_api.reply_message(
             event.reply_token,
@@ -844,6 +850,7 @@ def handle_text(event):
             )
         )
 
+        save_user_session_state(user_id)
         return
 
     if user_states.get(user_id) in ["filter", "filter_change"]:
@@ -851,7 +858,7 @@ def handle_text(event):
         filter_map = {
             "いい感じ": "good",
             "エモい": "emo",
-            "盛れる": "bright"
+            "盛れる": "bright",
         }
 
         if msg in filter_map:
@@ -860,8 +867,6 @@ def handle_text(event):
             if user_states.get(user_id) == "filter_change":
                 user_states[user_id] = None
 
-                save_user_session_state(user_id)
-
                 line_bot_api.reply_message(
                     event.reply_token,
                     TextSendMessage(
@@ -869,12 +874,11 @@ def handle_text(event):
                     )
                 )
 
+                save_user_session_state(user_id)
                 generate_and_send(user_id)
-
                 return
 
             user_states[user_id] = "text"
-            save_user_session_state(user_id)
 
             line_bot_api.reply_message(
                 event.reply_token,
@@ -883,6 +887,7 @@ def handle_text(event):
                 )
             )
 
+            save_user_session_state(user_id)
             return
 
         line_bot_api.reply_message(
@@ -910,8 +915,6 @@ def handle_text(event):
         user_texts[user_id] = msg
         user_states[user_id] = "date"
 
-        save_user_session_state(user_id)
-
         line_bot_api.reply_message(
             event.reply_token,
             TextSendMessage(
@@ -920,6 +923,7 @@ def handle_text(event):
             )
         )
 
+        save_user_session_state(user_id)
         return
 
     if user_states.get(user_id) == "date":
@@ -930,15 +934,13 @@ def handle_text(event):
             else msg
         )
 
-        save_user_session_state(user_id)
-
         line_bot_api.reply_message(
             event.reply_token,
             TextSendMessage(text="2パターン現像中…📸")
         )
 
+        save_user_session_state(user_id)
         generate_and_send(user_id)
-
         return
 
     line_bot_api.reply_message(
