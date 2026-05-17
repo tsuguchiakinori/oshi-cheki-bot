@@ -73,6 +73,20 @@ def user_key(user_id):
     return hashlib.md5(user_id.encode()).hexdigest()
 
 
+def get_input_path(user_id):
+    return f"/tmp/input_{user_key(user_id)}.jpg"
+
+
+def reset_user_state(user_id):
+    user_states[user_id] = None
+    user_texts[user_id] = ""
+    user_dates[user_id] = ""
+    user_filters[user_id] = "good"
+    user_retry_types[user_id] = "initial"
+    user_retry_counts[user_id] = 0
+    user_session_generation_counts[user_id] = 0
+
+
 def get_spreadsheet():
     if not SPREADSHEET_ID or not GOOGLE_CREDENTIALS:
         return None
@@ -527,8 +541,7 @@ def round_corners(img, radius=18):
 
 
 def make_cheki(user_id, variant=0):
-    key = user_key(user_id)
-    input_path = f"/tmp/input_{key}.jpg"
+    input_path = get_input_path(user_id)
 
     if not os.path.exists(input_path):
         raise FileNotFoundError("input image not found")
@@ -572,10 +585,7 @@ def make_cheki(user_id, variant=0):
 
     line_height = 72
 
-    if len(lines) == 1:
-        start_y = 1040
-    else:
-        start_y = 1010
+    start_y = 1040 if len(lines) == 1 else 1010
 
     for i, line in enumerate(lines):
         text_width = get_text_width(draw, line, title_font)
@@ -590,11 +600,7 @@ def make_cheki(user_id, variant=0):
     if date_text:
         date_font = load_font(42)
         date_width = get_text_width(draw, date_text, date_font)
-
-        if len(lines) == 1:
-            date_y = 1140
-        else:
-            date_y = 1200
+        date_y = 1140 if len(lines) == 1 else 1200
 
         draw.text(
             ((1000 - date_width) / 2, date_y),
@@ -603,7 +609,7 @@ def make_cheki(user_id, variant=0):
             fill=(120, 110, 100),
         )
 
-    output_key = f"{key}_{variant}"
+    output_key = f"{user_key(user_id)}_{variant}"
     frame.save(f"/tmp/output_{output_key}.jpg", quality=92)
 
     return output_key
@@ -704,13 +710,13 @@ def generate_and_send(user_id):
         save_user_session_state(user_id)
 
     except FileNotFoundError:
-        user_states[user_id] = None
+        reset_user_state(user_id)
         save_user_session_state(user_id)
 
         line_bot_api.push_message(
             user_id,
             TextSendMessage(
-                text="時間が経って画像データが消えちゃったみたい🙏\nもう一度画像を送ってね📸"
+                text="前の画像データが消えちゃったみたい🙏\nもう一度画像を送ってね📸"
             )
         )
 
@@ -728,17 +734,17 @@ def generate_and_send(user_id):
 @handler.add(MessageEvent, message=ImageMessage)
 def handle_image(event):
     user_id = event.source.user_id
-    key = user_key(user_id)
+    input_path = get_input_path(user_id)
 
     try:
         content = line_bot_api.get_message_content(event.message.id)
 
-        with open(f"/tmp/input_{key}.jpg", "wb") as f:
+        with open(input_path, "wb") as f:
             for chunk in content.iter_content():
                 f.write(chunk)
 
         try:
-            img = Image.open(f"/tmp/input_{key}.jpg")
+            img = Image.open(input_path)
 
             user_image_info[user_id] = {
                 "width": img.size[0],
@@ -791,11 +797,26 @@ def handle_text(event):
 
     load_user_session_state(user_id)
 
+    input_path = get_input_path(user_id)
+
+    if (
+        user_states.get(user_id) is not None
+        and user_states.get(user_id) not in ["filter"]
+        and not os.path.exists(input_path)
+    ):
+        reset_user_state(user_id)
+        save_user_session_state(user_id)
+
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(
+                text="前の画像データが消えちゃったみたい🙏\nもう一度画像を送ってね📸"
+            )
+        )
+        return
+
     if msg == "やり直し":
-        user_states[user_id] = None
-        user_filters[user_id] = "good"
-        user_texts[user_id] = ""
-        user_dates[user_id] = ""
+        reset_user_state(user_id)
 
         user_retry_types[user_id] = "やり直し"
         user_retry_counts[user_id] = user_retry_counts.get(user_id, 0) + 1
@@ -809,6 +830,18 @@ def handle_text(event):
         return
 
     if msg == "雰囲気だけ変える":
+        if not os.path.exists(input_path):
+            reset_user_state(user_id)
+            save_user_session_state(user_id)
+
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(
+                    text="前の画像データが消えちゃったみたい🙏\nもう一度画像を送ってね📸"
+                )
+            )
+            return
+
         user_states[user_id] = "filter_change"
         user_retry_types[user_id] = "雰囲気変更"
         user_retry_counts[user_id] = user_retry_counts.get(user_id, 0) + 1
@@ -825,6 +858,18 @@ def handle_text(event):
         return
 
     if msg == "文字変更":
+        if not os.path.exists(input_path):
+            reset_user_state(user_id)
+            save_user_session_state(user_id)
+
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(
+                    text="前の画像データが消えちゃったみたい🙏\nもう一度画像を送ってね📸"
+                )
+            )
+            return
+
         user_states[user_id] = "text"
         user_retry_types[user_id] = "文字変更"
         user_retry_counts[user_id] = user_retry_counts.get(user_id, 0) + 1
@@ -838,6 +883,18 @@ def handle_text(event):
         return
 
     if msg == "日付変更":
+        if not os.path.exists(input_path):
+            reset_user_state(user_id)
+            save_user_session_state(user_id)
+
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(
+                    text="前の画像データが消えちゃったみたい🙏\nもう一度画像を送ってね📸"
+                )
+            )
+            return
+
         user_states[user_id] = "date"
         user_retry_types[user_id] = "日付変更"
         user_retry_counts[user_id] = user_retry_counts.get(user_id, 0) + 1
@@ -854,7 +911,6 @@ def handle_text(event):
         return
 
     if user_states.get(user_id) in ["filter", "filter_change"]:
-
         filter_map = {
             "いい感じ": "good",
             "エモい": "emo",
@@ -862,6 +918,18 @@ def handle_text(event):
         }
 
         if msg in filter_map:
+            if not os.path.exists(input_path):
+                reset_user_state(user_id)
+                save_user_session_state(user_id)
+
+                line_bot_api.reply_message(
+                    event.reply_token,
+                    TextSendMessage(
+                        text="前の画像データが消えちゃったみたい🙏\nもう一度画像を送ってね📸"
+                    )
+                )
+                return
+
             user_filters[user_id] = filter_map[msg]
 
             if user_states.get(user_id) == "filter_change":
@@ -901,6 +969,17 @@ def handle_text(event):
         return
 
     if user_states.get(user_id) == "text":
+        if not os.path.exists(input_path):
+            reset_user_state(user_id)
+            save_user_session_state(user_id)
+
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(
+                    text="前の画像データが消えちゃったみたい🙏\nもう一度画像を送ってね📸"
+                )
+            )
+            return
 
         if len(msg) > MAX_TEXT_LENGTH:
             line_bot_api.reply_message(
@@ -909,7 +988,6 @@ def handle_text(event):
                     text=f"文字は{MAX_TEXT_LENGTH}文字までにして🙏"
                 )
             )
-
             return
 
         user_texts[user_id] = msg
@@ -927,6 +1005,17 @@ def handle_text(event):
         return
 
     if user_states.get(user_id) == "date":
+        if not os.path.exists(input_path):
+            reset_user_state(user_id)
+            save_user_session_state(user_id)
+
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(
+                    text="前の画像データが消えちゃったみたい🙏\nもう一度画像を送ってね📸"
+                )
+            )
+            return
 
         user_dates[user_id] = (
             ""
