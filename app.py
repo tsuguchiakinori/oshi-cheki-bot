@@ -535,7 +535,7 @@ def apply_photo_filter(img, filter_type, variant=0):
 def make_old_paper_frame(width, height):
     base = Image.new("RGB", (width, height), "#f3eddf")
 
-    warm = Image.new("RGB", height and width and (255, 239, 210))
+    warm = Image.new("RGB", (width, height), (255, 239, 210))
     base = Image.blend(base, warm, 0.23)
 
     noise = Image.effect_noise((width, height), 12).convert("RGB")
