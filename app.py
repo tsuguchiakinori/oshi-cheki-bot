@@ -4,6 +4,7 @@ import hashlib
 import json
 import uuid
 from datetime import datetime, timedelta
+from threading import Thread
 
 from flask import Flask, request, abort, send_file
 from linebot import LineBotApi, WebhookHandler
@@ -85,6 +86,24 @@ def reset_user_state(user_id):
     user_retry_types[user_id] = "initial"
     user_retry_counts[user_id] = 0
     user_session_generation_counts[user_id] = 0
+
+
+def safe_reply(user_id, reply_token, message):
+    try:
+        line_bot_api.reply_message(reply_token, message)
+    except Exception as e:
+        print("reply failed, fallback to push:", e)
+        try:
+            line_bot_api.push_message(user_id, message)
+        except Exception as push_error:
+            print("push failed:", push_error)
+
+
+def safe_push(user_id, message):
+    try:
+        line_bot_api.push_message(user_id, message)
+    except Exception as e:
+        print("push failed:", e)
 
 
 def get_spreadsheet():
@@ -516,7 +535,7 @@ def apply_photo_filter(img, filter_type, variant=0):
 def make_old_paper_frame(width, height):
     base = Image.new("RGB", (width, height), "#f3eddf")
 
-    warm = Image.new("RGB", (width, height), (255, 239, 210))
+    warm = Image.new("RGB", height and width and (255, 239, 210))
     base = Image.blend(base, warm, 0.23)
 
     noise = Image.effect_noise((width, height), 12).convert("RGB")
@@ -584,7 +603,6 @@ def make_cheki(user_id, variant=0):
     )
 
     line_height = 72
-
     start_y = 1040 if len(lines) == 1 else 1010
 
     for i, line in enumerate(lines):
@@ -651,16 +669,21 @@ def output(key):
     return send_file(f"/tmp/output_{key}.jpg", mimetype="image/jpeg")
 
 
+def process_webhook(body, signature):
+    try:
+        handler.handle(body, signature)
+    except InvalidSignatureError:
+        print("Invalid signature")
+    except Exception as e:
+        print("process_webhook error:", e)
+
+
 @app.route("/callback", methods=["POST"])
 def callback():
     signature = request.headers.get("X-Line-Signature", "")
     body = request.get_data(as_text=True)
 
-    try:
-        handler.handle(body, signature)
-
-    except InvalidSignatureError:
-        abort(400)
+    Thread(target=process_webhook, args=(body, signature)).start()
 
     return "OK"
 
@@ -676,7 +699,7 @@ def generate_and_send(user_id):
             output_key = make_cheki(user_id, variant=i)
             output_keys.append(output_key)
 
-        line_bot_api.push_message(
+        safe_push(
             user_id,
             TextSendMessage(
                 text="2パターン作ったよ📸\n好きな方を保存してね👇"
@@ -687,7 +710,7 @@ def generate_and_send(user_id):
             image_url = f"{BASE_URL}/output/{output_key}.jpg?{int(time.time())}"
             output_urls.append(image_url)
 
-            line_bot_api.push_message(
+            safe_push(
                 user_id,
                 ImageSendMessage(
                     original_content_url=image_url,
@@ -695,7 +718,7 @@ def generate_and_send(user_id):
                 )
             )
 
-        line_bot_api.push_message(
+        safe_push(
             user_id,
             TextSendMessage(
                 text="いい感じにできたね📸✨\nSNSでシェアしてみて👇\n#推しフィルム\n\nもう一回つくる？",
@@ -713,7 +736,7 @@ def generate_and_send(user_id):
         reset_user_state(user_id)
         save_user_session_state(user_id)
 
-        line_bot_api.push_message(
+        safe_push(
             user_id,
             TextSendMessage(
                 text="前の画像データが消えちゃったみたい🙏\nもう一度画像を送ってね📸"
@@ -723,7 +746,7 @@ def generate_and_send(user_id):
     except Exception as e:
         print("generate_and_send error:", e)
 
-        line_bot_api.push_message(
+        safe_push(
             user_id,
             TextSendMessage(
                 text="ごめん、うまく作れなかったみたい🙏\nもう一度画像を送って試してみて📸"
@@ -766,7 +789,8 @@ def handle_image(event):
         user_session_generation_counts[user_id] = 0
         user_states[user_id] = "filter"
 
-        line_bot_api.reply_message(
+        safe_reply(
+            user_id,
             event.reply_token,
             TextSendMessage(
                 text="どの雰囲気にする？👇",
@@ -779,15 +803,13 @@ def handle_image(event):
     except Exception as e:
         print("handle_image error:", e)
 
-        try:
-            line_bot_api.reply_message(
-                event.reply_token,
-                TextSendMessage(
-                    text="画像の受け取りに失敗しちゃったみたい🙏\nもう一度画像を送ってね📸"
-                )
+        safe_reply(
+            user_id,
+            event.reply_token,
+            TextSendMessage(
+                text="画像の受け取りに失敗しちゃったみたい🙏\nもう一度画像を送ってね📸"
             )
-        except Exception as reply_error:
-            print("handle_image reply error:", reply_error)
+        )
 
 
 @handler.add(MessageEvent, message=TextMessage)
@@ -807,7 +829,8 @@ def handle_text(event):
         reset_user_state(user_id)
         save_user_session_state(user_id)
 
-        line_bot_api.reply_message(
+        safe_reply(
+            user_id,
             event.reply_token,
             TextSendMessage(
                 text="前の画像データが消えちゃったみたい🙏\nもう一度画像を送ってね📸"
@@ -821,7 +844,8 @@ def handle_text(event):
         user_retry_types[user_id] = "やり直し"
         user_retry_counts[user_id] = user_retry_counts.get(user_id, 0) + 1
 
-        line_bot_api.reply_message(
+        safe_reply(
+            user_id,
             event.reply_token,
             TextSendMessage(text="もう一度画像を送ってね📸")
         )
@@ -834,7 +858,8 @@ def handle_text(event):
             reset_user_state(user_id)
             save_user_session_state(user_id)
 
-            line_bot_api.reply_message(
+            safe_reply(
+                user_id,
                 event.reply_token,
                 TextSendMessage(
                     text="前の画像データが消えちゃったみたい🙏\nもう一度画像を送ってね📸"
@@ -846,7 +871,8 @@ def handle_text(event):
         user_retry_types[user_id] = "雰囲気変更"
         user_retry_counts[user_id] = user_retry_counts.get(user_id, 0) + 1
 
-        line_bot_api.reply_message(
+        safe_reply(
+            user_id,
             event.reply_token,
             TextSendMessage(
                 text="どの雰囲気に変える？👇",
@@ -862,7 +888,8 @@ def handle_text(event):
             reset_user_state(user_id)
             save_user_session_state(user_id)
 
-            line_bot_api.reply_message(
+            safe_reply(
+                user_id,
                 event.reply_token,
                 TextSendMessage(
                     text="前の画像データが消えちゃったみたい🙏\nもう一度画像を送ってね📸"
@@ -874,7 +901,8 @@ def handle_text(event):
         user_retry_types[user_id] = "文字変更"
         user_retry_counts[user_id] = user_retry_counts.get(user_id, 0) + 1
 
-        line_bot_api.reply_message(
+        safe_reply(
+            user_id,
             event.reply_token,
             TextSendMessage(text="新しい文字を送って！")
         )
@@ -887,7 +915,8 @@ def handle_text(event):
             reset_user_state(user_id)
             save_user_session_state(user_id)
 
-            line_bot_api.reply_message(
+            safe_reply(
+                user_id,
                 event.reply_token,
                 TextSendMessage(
                     text="前の画像データが消えちゃったみたい🙏\nもう一度画像を送ってね📸"
@@ -899,7 +928,8 @@ def handle_text(event):
         user_retry_types[user_id] = "日付変更"
         user_retry_counts[user_id] = user_retry_counts.get(user_id, 0) + 1
 
-        line_bot_api.reply_message(
+        safe_reply(
+            user_id,
             event.reply_token,
             TextSendMessage(
                 text="日付を送ってね📅 手入力でもOK。不要なら「なし」",
@@ -922,7 +952,8 @@ def handle_text(event):
                 reset_user_state(user_id)
                 save_user_session_state(user_id)
 
-                line_bot_api.reply_message(
+                safe_reply(
+                    user_id,
                     event.reply_token,
                     TextSendMessage(
                         text="前の画像データが消えちゃったみたい🙏\nもう一度画像を送ってね📸"
@@ -935,7 +966,8 @@ def handle_text(event):
             if user_states.get(user_id) == "filter_change":
                 user_states[user_id] = None
 
-                line_bot_api.reply_message(
+                safe_reply(
+                    user_id,
                     event.reply_token,
                     TextSendMessage(
                         text=f"「{msg}」で作り直すね📸"
@@ -948,7 +980,8 @@ def handle_text(event):
 
             user_states[user_id] = "text"
 
-            line_bot_api.reply_message(
+            safe_reply(
+                user_id,
                 event.reply_token,
                 TextSendMessage(
                     text=f"「{msg}」で作るね📸\n下に入れる文字を送って！"
@@ -958,7 +991,8 @@ def handle_text(event):
             save_user_session_state(user_id)
             return
 
-        line_bot_api.reply_message(
+        safe_reply(
+            user_id,
             event.reply_token,
             TextSendMessage(
                 text="ボタンから雰囲気を選んでね👇",
@@ -973,7 +1007,8 @@ def handle_text(event):
             reset_user_state(user_id)
             save_user_session_state(user_id)
 
-            line_bot_api.reply_message(
+            safe_reply(
+                user_id,
                 event.reply_token,
                 TextSendMessage(
                     text="前の画像データが消えちゃったみたい🙏\nもう一度画像を送ってね📸"
@@ -982,7 +1017,8 @@ def handle_text(event):
             return
 
         if len(msg) > MAX_TEXT_LENGTH:
-            line_bot_api.reply_message(
+            safe_reply(
+                user_id,
                 event.reply_token,
                 TextSendMessage(
                     text=f"文字は{MAX_TEXT_LENGTH}文字までにして🙏"
@@ -993,7 +1029,8 @@ def handle_text(event):
         user_texts[user_id] = msg
         user_states[user_id] = "date"
 
-        line_bot_api.reply_message(
+        safe_reply(
+            user_id,
             event.reply_token,
             TextSendMessage(
                 text="日付を送ってね📅 手入力でもOK。不要なら「なし」",
@@ -1009,7 +1046,8 @@ def handle_text(event):
             reset_user_state(user_id)
             save_user_session_state(user_id)
 
-            line_bot_api.reply_message(
+            safe_reply(
+                user_id,
                 event.reply_token,
                 TextSendMessage(
                     text="前の画像データが消えちゃったみたい🙏\nもう一度画像を送ってね📸"
@@ -1023,7 +1061,8 @@ def handle_text(event):
             else msg
         )
 
-        line_bot_api.reply_message(
+        safe_reply(
+            user_id,
             event.reply_token,
             TextSendMessage(text="2パターン現像中…📸")
         )
@@ -1032,7 +1071,8 @@ def handle_text(event):
         generate_and_send(user_id)
         return
 
-    line_bot_api.reply_message(
+    safe_reply(
+        user_id,
         event.reply_token,
         TextSendMessage(text="まず画像を送ってね📸")
     )
